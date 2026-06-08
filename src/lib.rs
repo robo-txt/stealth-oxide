@@ -1,5 +1,6 @@
 pub mod browser;
 pub mod page;
+pub mod patches;
 pub mod profiles;
 
 pub fn add(left: u64, right: u64) -> u64 {

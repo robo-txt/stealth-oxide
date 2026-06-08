@@ -28,13 +28,18 @@ impl StealthBrowser {
 
         Ok(Self { browser, profile })
     }
+
     pub async fn new_page(&self, url: &str) -> Result<StealthPage> {
         let page = self.browser.new_page(url).await?;
 
         let stealth_page = StealthPage::new(page);
-
+        stealth_page.apply_profile(&self.profile).await?;
         //patches apply here
         Ok(stealth_page)
+    }
+
+    pub fn profile(&self) -> &BrowserProfile {
+        &self.profile
     }
 
     pub async fn close(mut self) -> Result<()> {
