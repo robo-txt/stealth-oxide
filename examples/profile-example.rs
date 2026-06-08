@@ -9,7 +9,7 @@ async fn main() -> Result<()> {
 
     let browser = StealthBrowser::launch(profile).await?;
 
-    let page = browser.new_page("https://example.com").await?;
+    let page = browser.new_page("https://httpbin.org/headers").await?;
 
     let html = page.inner().content().await?;
 
