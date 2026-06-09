@@ -30,10 +30,12 @@ impl StealthBrowser {
     }
 
     pub async fn new_page(&self, url: &str) -> Result<StealthPage> {
-        let page = self.browser.new_page(url).await?;
+        let page = self.browser.new_page("about:blank").await?;
 
         let stealth_page = StealthPage::new(page);
         stealth_page.apply_profile(&self.profile).await?;
+        stealth_page.goto(url).await?;
+
         //patches apply here
         Ok(stealth_page)
     }
