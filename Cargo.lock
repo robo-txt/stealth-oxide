@@ -895,6 +895,7 @@ dependencies = [
  "anyhow",
  "chromiumoxide",
  "futures",
+ "serde_json",
  "tokio",
 ]
 

@@ -17,7 +17,7 @@ pub fn chrome_windows() -> BrowserProfile {
                     version: "125".to_string(),
                 },
                 BrandVersion {
-                    brand:"Chromium".to_string(),
+                    brand:"Google Chrome".to_string(),
                     version:"125".to_string(),
                 },
                 BrandVersion {
@@ -41,10 +41,10 @@ pub fn chrome_windows() -> BrowserProfile {
             ],
             platform: "Windows".to_string(),
             platform_version: "10.0.0".to_string(),
-            architectuer: "x86".to_string(),
+            architecture: "x86".to_string(),
             bitness: "64".to_string(),
             model:"".to_string(),
-            mobile: false,         
+            mobile: false,
             })
         },
         screen: ScreenProfile {
@@ -57,7 +57,7 @@ pub fn chrome_windows() -> BrowserProfile {
             device_scale_factor: 1.0,
         },
         locale: LocaleProfile {
-            locale: "en-US".to_string(),
+            locale: "en-US,en;q=0.9".to_string(),
             timezone: "America/New_York".to_string(),
         },
         webgl: Some(WebGLProfile{

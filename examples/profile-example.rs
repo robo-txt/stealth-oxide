@@ -15,6 +15,39 @@ async fn main() -> Result<()> {
 
     println!("{html}");
 
+    let user_agent_data: serde_json::Value = page
+        .inner()
+        .evaluate(
+            r#"
+          (async () => {
+              if (!navigator.userAgentData) {
+                  return { supported: false };
+              }
+
+              const highEntropy = await
+              navigator.userAgentData.getHighEntropyValues([
+                  "architecture",
+                  "bitness",
+                  "platform",
+                  "platformVersion",
+                  "fullVersionList",
+                  "mobile",
+                  "model"
+              ]);
+
+              return {
+                  supported: true,
+                  brands: navigator.userAgentData.brands,
+                  mobile: navigator.userAgentData.mobile,
+                  platform: navigator.userAgentData.platform,
+                  highEntropy
+              };
+          })()
+          "#,
+        )
+        .await?
+        .into_value()?;
+    println!("{}", serde_json::to_string_pretty(&user_agent_data)?);
     browser.close().await?;
 
     Ok(())

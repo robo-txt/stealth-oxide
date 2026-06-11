@@ -28,7 +28,7 @@ pub struct UserAgentClientHintsProfile {
     pub full_version_list: Vec<BrandVersion>,
     pub platform: String,
     pub platform_version: String,
-    pub architectuer: String,
+    pub architecture: String,
     pub bitness: String,
     pub model: String,
     pub mobile: bool,
