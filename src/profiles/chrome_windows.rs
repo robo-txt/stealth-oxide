@@ -10,61 +10,62 @@ pub fn chrome_windows() -> BrowserProfile {
             languages: vec!["en-US".to_string(), "en".to_string()],
             hardware_concurrency: Some(8),
             device_memory: Some(8),
-                    client_hints: Some(UserAgentClientHintsProfile{
-            brands: vec![
-                BrandVersion {
-                    brand: "Chromium".to_string(),
-                    version: "125".to_string(),
-                },
-                BrandVersion {
-                    brand:"Google Chrome".to_string(),
-                    version:"125".to_string(),
-                },
-                BrandVersion {
-                    brand: "Not.A/Brand".to_string(),
-                    version: "24".to_string(),
-                },
-            ],
-            full_version_list: vec![
-                BrandVersion {
-                    brand: "Chromium".to_string(),
-                    version: "125.0.0.0".to_string(),
-                },
-                BrandVersion {
-                    brand: "Google Chrome".to_string(),
-                    version: "125.0.0.0".to_string(),
-                },
-                BrandVersion {
-                    brand: "Not.A/Brand".to_string(),
-                    version: "24.0.0.0".to_string(),
-                },
-            ],
-            platform: "Windows".to_string(),
-            platform_version: "10.0.0".to_string(),
-            architecture: "x86".to_string(),
-            bitness: "64".to_string(),
-            model:"".to_string(),
-            mobile: false,
-            })
-        },
-        screen: ScreenProfile {
-            width: 1920,
-            height: 1080,
-            avail_width: 1920,
-            avail_height: 1040,
-            color_depth: 24,
-            pixel_depth: 24,
-            device_scale_factor: 1.0,
-        },
-        locale: LocaleProfile {
-            locale: "en-US,en;q=0.9".to_string(),
-            timezone: "America/New_York".to_string(),
-        },
-        webgl: Some(WebGLProfile{
-            vendor: "Google Inc. (NVIDIA)".to_string(),
-            renderer:
-                "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)"
-                    .to_string(),
+            //vendor:"Google Inc.".to_string(),
+            client_hints: Some(UserAgentClientHintsProfile{
+                brands: vec![
+                    BrandVersion {
+                        brand: "Chromium".to_string(),
+                        version: "125".to_string(),
+                    },
+                    BrandVersion {
+                        brand:"Google Chrome".to_string(),
+                        version:"125".to_string(),
+                    },
+                    BrandVersion {
+                        brand: "Not.A/Brand".to_string(),
+                        version: "24".to_string(),
+                    },
+                ],
+                full_version_list: vec![
+                    BrandVersion {
+                        brand: "Chromium".to_string(),
+                        version: "125.0.0.0".to_string(),
+                    },
+                    BrandVersion {
+                        brand: "Google Chrome".to_string(),
+                        version: "125.0.0.0".to_string(),
+                    },
+                    BrandVersion {
+                        brand: "Not.A/Brand".to_string(),
+                        version: "24.0.0.0".to_string(),
+                    },
+                ],
+                platform: "Windows".to_string(),
+                platform_version: "10.0.0".to_string(),
+                architecture: "x86".to_string(),
+                bitness: "64".to_string(),
+                model:"".to_string(),
+                mobile: false,
+                })
+            },
+            screen: ScreenProfile {
+                width: 1920,
+                height: 1080,
+                avail_width: 1920,
+                avail_height: 1040,
+                color_depth: 24,
+                pixel_depth: 24,
+                device_scale_factor: 1.0,
+            },
+            locale: LocaleProfile {
+                locale: "en-US,en;q=0.9".to_string(),
+                timezone: "America/New_York".to_string(),
+            },
+            webgl: Some(WebGLProfile{
+                vendor: "Google Inc. (NVIDIA)".to_string(),
+                renderer:
+                    "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)"
+                        .to_string(),
         }),
     }
 }

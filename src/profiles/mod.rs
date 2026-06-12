@@ -19,6 +19,7 @@ pub struct NavigatorProfile {
     pub languages: Vec<String>,
     pub hardware_concurrency: Option<u32>,
     pub device_memory: Option<u32>,
+    //pub vendor: String,
     pub client_hints: Option<UserAgentClientHintsProfile>,
 }
 

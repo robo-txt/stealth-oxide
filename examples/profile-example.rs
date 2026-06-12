@@ -48,6 +48,13 @@ async fn main() -> Result<()> {
         .await?
         .into_value()?;
     println!("{}", serde_json::to_string_pretty(&user_agent_data)?);
+    let vendor: String = page
+        .inner()
+        .evaluate("navigator.vendor")
+        .await?
+        .into_value()?;
+
+    println!("navigator.vendor = {vendor}");
     browser.close().await?;
 
     Ok(())
