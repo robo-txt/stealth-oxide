@@ -19,8 +19,27 @@ pub struct NavigatorProfile {
     pub languages: Vec<String>,
     pub hardware_concurrency: Option<u32>,
     pub device_memory: Option<u32>,
+    //pub vendor: String,
+    pub client_hints: Option<UserAgentClientHintsProfile>,
 }
 
+#[derive(Debug, Clone)]
+pub struct UserAgentClientHintsProfile {
+    pub brands: Vec<BrandVersion>,
+    pub full_version_list: Vec<BrandVersion>,
+    pub platform: String,
+    pub platform_version: String,
+    pub architecture: String,
+    pub bitness: String,
+    pub model: String,
+    pub mobile: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct BrandVersion {
+    pub brand: String,
+    pub version: String,
+}
 #[derive(Debug, Clone)]
 pub struct ScreenProfile {
     pub width: u32,
