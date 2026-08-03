@@ -12,7 +12,11 @@ pub struct StealthBrowser {
 
 impl StealthBrowser {
     pub async fn launch(profile: BrowserProfile) -> Result<Self> {
+        // Apply launch-scoped identity inputs before any page or worker target
+        // exists. Page-scoped CDP user-agent overrides do not reach workers.
         let config = BrowserConfig::builder()
+            .hide()
+            .arg(("user-agent", profile.navigator.user_agent.as_str()))
             .build()
             .map_err(anyhow::Error::msg)?;
 
@@ -42,6 +46,10 @@ impl StealthBrowser {
 
     pub fn profile(&self) -> &BrowserProfile {
         &self.profile
+    }
+
+    pub async fn version(&self) -> Result<String> {
+        Ok(self.browser.version().await?.product)
     }
 
     pub async fn close(mut self) -> Result<()> {
