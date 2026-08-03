@@ -51,10 +51,6 @@ pub fn chrome_windows() -> BrowserProfile {
             screen: ScreenProfile {
                 width: 1920,
                 height: 1080,
-                avail_width: 1920,
-                avail_height: 1040,
-                color_depth: 24,
-                pixel_depth: 24,
                 device_scale_factor: 1.0,
             },
             locale: LocaleProfile {
