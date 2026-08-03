@@ -44,10 +44,6 @@ pub struct BrandVersion {
 pub struct ScreenProfile {
     pub width: u32,
     pub height: u32,
-    pub avail_width: u32,
-    pub avail_height: u32,
-    pub color_depth: u32,
-    pub pixel_depth: u32,
     pub device_scale_factor: f64,
 }
 
