@@ -54,7 +54,7 @@ pub fn chrome_windows() -> BrowserProfile {
                 device_scale_factor: 1.0,
             },
             locale: LocaleProfile {
-                locale: "en-US,en;q=0.9".to_string(),
+                locale: "en-US".to_string(),
                 timezone: "America/New_York".to_string(),
             },
             webgl: Some(WebGLProfile{

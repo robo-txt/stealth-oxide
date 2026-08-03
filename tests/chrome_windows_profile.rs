@@ -103,3 +103,17 @@ fn chrome_windows_full_version_list_matches_brands() {
         );
     }
 }
+
+#[test]
+fn chrome_windows_locale_is_consistent_with_navigator_languages() {
+    let profile = chrome_windows();
+
+    assert_eq!(profile.locale.locale, "en-US");
+    assert_eq!(profile.locale.timezone, "America/New_York");
+    assert_eq!(
+        profile.navigator.languages.first(),
+        Some(&profile.locale.locale)
+    );
+    assert!(!profile.locale.locale.contains(','));
+    assert!(!profile.locale.locale.contains("q="));
+}
