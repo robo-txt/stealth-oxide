@@ -1,25 +1,20 @@
-use anyhow::Result;
+use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::emulation::{
     ScreenOrientation, ScreenOrientationType, SetDeviceMetricsOverrideParams,
 };
 
-use crate::page::StealthPage;
-use crate::profiles::ScreenProfile;
+use crate::error::{Error, Result};
+use crate::profiles::ScreenConfig;
 
-pub async fn apply(page: &StealthPage, profile: &ScreenProfile) -> Result<()> {
-    if matches!(
-        std::env::var("STEALTH_OXIDE_USE_NATIVE_SCREEN").as_deref(),
-        Ok("1") | Ok("true")
-    ) {
-        return Ok(());
-    }
-
-    page.inner().execute(params(profile)?).await?;
+pub async fn apply(page: &Page, profile: &ScreenConfig) -> Result<()> {
+    page.execute(params(profile)?)
+        .await
+        .map_err(|source| Error::cdp("screen metrics", source))?;
 
     Ok(())
 }
 
-fn params(profile: &ScreenProfile) -> Result<SetDeviceMetricsOverrideParams> {
+fn params(profile: &ScreenConfig) -> Result<SetDeviceMetricsOverrideParams> {
     let orientation_type = if profile.width >= profile.height {
         ScreenOrientationType::LandscapePrimary
     } else {
@@ -35,7 +30,7 @@ fn params(profile: &ScreenProfile) -> Result<SetDeviceMetricsOverrideParams> {
         .screen_height(profile.height as i64)
         .screen_orientation(ScreenOrientation::new(orientation_type, 0))
         .build()
-        .map_err(anyhow::Error::msg)
+        .map_err(|message| Error::invalid_parameters("screen metrics", message))
 }
 
 #[cfg(test)]
@@ -44,11 +39,9 @@ mod tests {
 
     #[test]
     fn builds_desktop_landscape_metrics() -> Result<()> {
-        let profile = ScreenProfile {
+        let profile = ScreenConfig {
             width: 1920,
             height: 1080,
-            available_width: 1920,
-            available_height: 1040,
             device_scale_factor: 1.25,
         };
 
@@ -73,11 +66,9 @@ mod tests {
 
     #[test]
     fn derives_portrait_orientation_from_dimensions() -> Result<()> {
-        let profile = ScreenProfile {
+        let profile = ScreenConfig {
             width: 1080,
             height: 1920,
-            available_width: 1080,
-            available_height: 1880,
             device_scale_factor: 1.0,
         };
 

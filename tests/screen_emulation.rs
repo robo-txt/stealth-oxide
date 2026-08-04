@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::time::timeout;
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 #[tokio::test]
@@ -15,7 +16,7 @@ async fn screen_patch_keeps_cdp_controlled_surfaces_consistent() -> Result<()> {
         Ok("1") | Ok("true")
     );
     let profile = chrome_windows();
-    let expected_screen = profile.screen.clone();
+    let expected_screen = profile.screen().clone();
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
         .await
         .context("timed out while launching Chromium")??;

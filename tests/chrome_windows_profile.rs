@@ -19,8 +19,9 @@ fn chrome_major_version(user_agent: &str) -> &str {
 fn chrome_windows_has_client_hints() {
     let profile = chrome_windows();
     let client_hints = profile
-        .navigator
+        .navigator()
         .client_hints
+        .as_ref()
         .expect("Chrome profile should include user agent client hints");
 
     assert_eq!(client_hints.platform, "Windows");
@@ -35,14 +36,15 @@ fn chrome_windows_has_client_hints() {
 fn chrome_windows_client_hints_match_user_agent() {
     let profile = chrome_windows();
     let client_hints = profile
-        .navigator
+        .navigator()
         .client_hints
+        .as_ref()
         .expect("Chrome profile should include user agent client hints");
-    let major_version = chrome_major_version(&profile.navigator.user_agent);
+    let major_version = chrome_major_version(&profile.navigator().user_agent);
 
-    assert!(profile.navigator.user_agent.contains("Windows NT 10.0"));
-    assert!(profile.navigator.user_agent.contains("Win64; x64"));
-    assert_eq!(profile.navigator.platform, "Win32");
+    assert!(profile.navigator().user_agent.contains("Windows NT 10.0"));
+    assert!(profile.navigator().user_agent.contains("Win64; x64"));
+    assert_eq!(profile.navigator().platform, "Win32");
 
     let chrome_brand = client_hints
         .brands
@@ -61,7 +63,7 @@ fn chrome_windows_client_hints_match_user_agent() {
     assert_eq!(full_chrome_brand.version, "151.0.7922.71");
     assert!(
         profile
-            .navigator
+            .navigator()
             .user_agent
             .contains(&format!("Chrome/{}", full_chrome_brand.version))
     );
@@ -71,8 +73,9 @@ fn chrome_windows_client_hints_match_user_agent() {
 fn chrome_windows_client_hint_brands_are_unique() {
     let profile = chrome_windows();
     let client_hints = profile
-        .navigator
+        .navigator()
         .client_hints
+        .as_ref()
         .expect("Chrome profile should include user agent client hints");
 
     let mut brands = HashSet::new();
@@ -91,8 +94,9 @@ fn chrome_windows_client_hint_brands_are_unique() {
 fn chrome_windows_full_version_list_matches_brands() {
     let profile = chrome_windows();
     let client_hints = profile
-        .navigator
+        .navigator()
         .client_hints
+        .as_ref()
         .expect("Chrome profile should include user agent client hints");
 
     let brand_names = client_hints
@@ -122,20 +126,20 @@ fn chrome_windows_full_version_list_matches_brands() {
 fn chrome_windows_locale_is_consistent_with_navigator_languages() {
     let profile = chrome_windows();
 
-    assert_eq!(profile.locale.locale, "en-US");
-    assert_eq!(profile.locale.timezone, "America/New_York");
+    assert_eq!(profile.locale().locale, "en-US");
+    assert_eq!(profile.locale().timezone, "America/New_York");
     assert_eq!(
-        profile.navigator.languages.first(),
-        Some(&profile.locale.locale)
+        profile.navigator().languages.first(),
+        Some(&profile.locale().locale)
     );
-    assert!(!profile.locale.locale.contains(','));
-    assert!(!profile.locale.locale.contains("q="));
+    assert!(!profile.locale().locale.contains(','));
+    assert!(!profile.locale().locale.contains("q="));
 }
 
 #[test]
 fn chrome_windows_device_environment_is_desktop_consistent() {
     let profile = chrome_windows();
-    let environment = profile.device_environment;
+    let environment = profile.device_environment();
 
     assert_eq!(environment.color_scheme, "dark");
     assert_eq!(environment.reduced_motion, "no-preference");
@@ -148,7 +152,8 @@ fn chrome_windows_device_environment_is_desktop_consistent() {
 
 #[test]
 fn chrome_windows_models_desktop_work_area() {
-    let screen = chrome_windows().screen;
+    let profile = chrome_windows();
+    let screen = profile.screen();
 
     assert_eq!(screen.width, 1920);
     assert_eq!(screen.height, 1080);

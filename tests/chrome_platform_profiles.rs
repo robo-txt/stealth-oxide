@@ -6,8 +6,9 @@ use stealth_oxide::profiles::chrome_macos::chrome_macos;
 
 fn assert_common_desktop_invariants(profile: BrowserProfile) {
     let hints = profile
-        .navigator
+        .navigator()
         .client_hints
+        .as_ref()
         .expect("Chrome profiles should include UA Client Hints");
     let brand_names = hints
         .brands
@@ -38,23 +39,23 @@ fn assert_common_desktop_invariants(profile: BrowserProfile) {
     assert_eq!(hints.bitness, "64");
     assert!(!hints.mobile);
     assert_eq!(
-        profile.navigator.languages.first(),
-        Some(&profile.locale.locale)
+        profile.navigator().languages.first(),
+        Some(&profile.locale().locale)
     );
-    assert!(profile.screen.available_width <= profile.screen.width);
-    assert!(profile.screen.available_height < profile.screen.height);
-    assert!(!profile.device_environment.touch_enabled);
-    assert_eq!(profile.device_environment.max_touch_points, 0);
+    assert!(profile.screen().available_width <= profile.screen().width);
+    assert!(profile.screen().available_height < profile.screen().height);
+    assert!(!profile.device_environment().touch_enabled);
+    assert_eq!(profile.device_environment().max_touch_points, 0);
 }
 
 #[test]
 fn chrome_linux_identity_is_coherent() {
     let profile = chrome_linux();
-    let hints = profile.navigator.client_hints.as_ref().unwrap();
+    let hints = profile.navigator().client_hints.as_ref().unwrap();
 
-    assert_eq!(profile.name, "chrome-linux");
-    assert!(profile.navigator.user_agent.contains("X11; Linux x86_64"));
-    assert_eq!(profile.navigator.platform, "Linux x86_64");
+    assert_eq!(profile.name(), "chrome-linux");
+    assert!(profile.navigator().user_agent.contains("X11; Linux x86_64"));
+    assert_eq!(profile.navigator().platform, "Linux x86_64");
     assert_eq!(hints.platform, "Linux");
     assert_eq!(hints.platform_version, "");
     assert_common_desktop_invariants(profile);
@@ -63,11 +64,11 @@ fn chrome_linux_identity_is_coherent() {
 #[test]
 fn chrome_macos_identity_is_coherent() {
     let profile = chrome_macos();
-    let hints = profile.navigator.client_hints.as_ref().unwrap();
+    let hints = profile.navigator().client_hints.as_ref().unwrap();
 
-    assert_eq!(profile.name, "chrome-macos");
-    assert!(profile.navigator.user_agent.contains("Mac OS X 10_15_7"));
-    assert_eq!(profile.navigator.platform, "MacIntel");
+    assert_eq!(profile.name(), "chrome-macos");
+    assert!(profile.navigator().user_agent.contains("Mac OS X 10_15_7"));
+    assert_eq!(profile.navigator().platform, "MacIntel");
     assert_eq!(hints.platform, "macOS");
     assert_eq!(hints.platform_version, "15.6.1");
     assert_common_desktop_invariants(profile);

@@ -4,19 +4,22 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::time::timeout;
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::TestBrowser as StealthBrowser;
+use stealth_oxide::BrowserProfileBuilder;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 #[tokio::test]
 #[ignore = "requires a local Chromium process with working CDP sockets"]
 async fn timezone_and_intl_are_consistent_across_page_iframe_and_worker() -> Result<()> {
-    let mut profile = chrome_windows();
-    profile.locale.locale = "fr-FR".to_string();
-    profile.locale.timezone = "Asia/Tokyo".to_string();
-    profile.navigator.languages = vec!["fr-FR".to_string(), "fr".to_string()];
-    let expected_locale = profile.locale.locale.clone();
-    let expected_timezone = profile.locale.timezone.clone();
-    let expected_languages = serde_json::to_value(&profile.navigator.languages)?;
+    let profile = BrowserProfileBuilder::new(chrome_windows())
+        .locale("fr-FR")
+        .languages(["fr-FR", "fr"])
+        .timezone("Asia/Tokyo")
+        .build()?;
+    let expected_locale = profile.locale().locale.clone();
+    let expected_timezone = profile.locale().timezone.clone();
+    let expected_languages = serde_json::to_value(&profile.navigator().languages)?;
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
         .await
         .context("timed out while launching Chromium")??;

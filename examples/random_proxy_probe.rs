@@ -4,8 +4,11 @@ use anyhow::{Context, Result, bail};
 use rand::seq::IteratorRandom;
 use serde::Serialize;
 use serde_json::Value;
-use stealth_oxide::{PlatformProfile, ProxyConfig, StealthBrowser, StealthConfig};
+use stealth_oxide::PlatformProfile;
 use tokio::time::timeout;
+
+mod common;
+use common::{BrowserSession, ExampleLaunch, ExampleProxy};
 
 #[derive(Debug)]
 struct Arguments {
@@ -47,17 +50,20 @@ async fn main() -> Result<()> {
         .context("proxy file contained no usable entries")?;
     let selected_proxy = format!("proxy-{}", proxy_index + 1);
 
-    let config = StealthConfig::builder()
-        .platform(PlatformProfile::Linux)
-        .proxy(proxy.clone())
-        .headful(arguments.headful)
-        .mesa(arguments.mesa)
-        .build()?;
-
     let started = Instant::now();
-    let browser = timeout(arguments.timeout, StealthBrowser::launch_with(config))
-        .await
-        .context("browser launch timed out")??;
+    let browser = timeout(
+        arguments.timeout,
+        BrowserSession::launch_with(
+            PlatformProfile::Linux.profile(),
+            ExampleLaunch {
+                headful: arguments.headful,
+                mesa: arguments.mesa,
+                proxy: Some(proxy.clone()),
+            },
+        ),
+    )
+    .await
+    .context("browser launch timed out")??;
     let report = match timeout(arguments.timeout, browser.new_page(&arguments.url)).await {
         Ok(Ok(page)) => {
             if !arguments.post_load_wait.is_zero() {
@@ -136,7 +142,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn read_proxies(path: &str) -> Result<Vec<ProxyConfig>> {
+fn read_proxies(path: &str) -> Result<Vec<ExampleProxy>> {
     let contents =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
     contents
@@ -147,7 +153,7 @@ fn read_proxies(path: &str) -> Result<Vec<ProxyConfig>> {
             (!line.is_empty() && !line.starts_with('#')).then_some((index, line))
         })
         .map(|(index, line)| {
-            ProxyConfig::parse(line)
+            ExampleProxy::parse(line)
                 .with_context(|| format!("invalid proxy on line {} of {path}", index + 1))
         })
         .collect()

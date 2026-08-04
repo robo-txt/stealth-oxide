@@ -4,14 +4,15 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::time::timeout;
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 #[tokio::test]
 #[ignore = "requires a local Chromium process with working CDP sockets"]
 async fn device_media_and_touch_match_the_desktop_profile() -> Result<()> {
     let profile = chrome_windows();
-    let expected = profile.device_environment.clone();
+    let expected = profile.device_environment().clone();
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
         .await
         .context("timed out while launching Chromium")??;

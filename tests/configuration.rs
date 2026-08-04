@@ -1,51 +1,158 @@
-use stealth_oxide::BrowserProfileBuilder;
-use stealth_oxide::config::{
-    PatchSet, PlatformProfile, ProxyConfig, StealthConfig, validate_profile,
-};
 use stealth_oxide::profiles::chrome_linux::chrome_linux;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
+use stealth_oxide::{
+    ApplyReport, BrowserProfileBuilder, ColorScheme, ConsistencyPolicy, Error, Patch, PatchMode,
+    PatchState, PlatformProfile, StealthConfig,
+};
 
 #[test]
-fn builds_a_typed_linux_configuration() -> anyhow::Result<()> {
-    let config = StealthConfig::builder()
-        .platform(PlatformProfile::Linux)
-        .headful(true)
-        .mesa(true)
-        .patches(PatchSet::all().device_environment(false))
-        .build()?;
+fn selects_a_typed_linux_profile() {
+    let profile = PlatformProfile::Linux.profile();
+    assert_eq!(profile.name(), "chrome-linux");
+}
 
-    assert_eq!(config.profile.name, "chrome-linux");
-    assert!(config.launch.headful);
-    assert!(config.launch.mesa);
-    assert!(!config.patches.device_environment);
-    Ok(())
+#[test]
+fn none_disables_every_patch() {
+    let config = StealthConfig::none();
+    for patch in [
+        Patch::Identity,
+        Patch::Locale,
+        Patch::Timezone,
+        Patch::Screen,
+        Patch::MediaFeatures,
+        Patch::Touch,
+    ] {
+        assert_eq!(config.patch_state(patch), PatchState::Disabled);
+    }
+}
+
+#[test]
+fn value_overrides_enable_their_patch() {
+    let config = StealthConfig::none()
+        .locale_patch(PatchMode::Override("en-CA".to_string()))
+        .timezone("America/Toronto")
+        .screen_size(2560, 1440)
+        .device_scale_factor(1.25)
+        .color_scheme(ColorScheme::Dark)
+        .touch(false, 0);
+
+    assert_eq!(config.locale_override(), Some("en-CA"));
+    assert_eq!(config.timezone_override(), Some("America/Toronto"));
+    assert_eq!(config.screen_override().unwrap().width, 2560);
+    assert_eq!(config.screen_override().unwrap().device_scale_factor, 1.25);
+    assert_eq!(
+        config.media_features_override().unwrap().color_scheme,
+        ColorScheme::Dark
+    );
+    assert!(!config.touch_override().unwrap().enabled);
+}
+
+#[test]
+fn apply_report_defaults_to_no_operations() {
+    let report = ApplyReport::default();
+    assert!(report.applied().is_empty());
+    assert!(report.skipped().is_empty());
+    assert!(report.native().is_empty());
+    assert!(report.warnings().is_empty());
+}
+
+#[test]
+fn patch_plan_order_is_deterministic() {
+    let config = StealthConfig::recommended();
+    let patches = config
+        .plan()
+        .operations()
+        .iter()
+        .map(|(patch, _)| *patch)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        patches,
+        vec![
+            Patch::Locale,
+            Patch::Timezone,
+            Patch::Identity,
+            Patch::Screen,
+            Patch::MediaFeatures,
+            Patch::Touch,
+        ]
+    );
+}
+
+#[test]
+fn public_configuration_types_remain_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<StealthConfig>();
+    assert_send_sync::<ApplyReport>();
+    assert_send_sync::<Error>();
+}
+
+#[test]
+fn supports_playwright_style_patch_selection() {
+    let config = StealthConfig::none()
+        .enable(Patch::Identity)
+        .enable(Patch::Timezone)
+        .use_native(Patch::Screen)
+        .disable(Patch::Touch)
+        .consistency_policy(ConsistencyPolicy::Warn);
+
+    assert_eq!(config.policy(), ConsistencyPolicy::Warn);
+    assert_eq!(config.patch_state(Patch::Identity), PatchState::Override);
+    assert_eq!(config.patch_state(Patch::Screen), PatchState::Native);
+    assert_eq!(config.patch_state(Patch::Touch), PatchState::Disabled);
+}
+
+#[test]
+fn permissive_configuration_accepts_intentional_identity_mismatches() {
+    let config = StealthConfig::for_platform(PlatformProfile::Linux)
+        .navigator_platform("Win32")
+        .consistency_policy(ConsistencyPolicy::Permissive);
+
+    assert_eq!(config.policy(), ConsistencyPolicy::Permissive);
+    assert!(!config.validation_issues().is_empty());
+}
+
+#[test]
+fn disabled_patches_are_excluded_from_validation() {
+    let config = StealthConfig::for_platform(PlatformProfile::Linux)
+        .navigator_platform("Win32")
+        .disable(Patch::Identity);
+
+    assert!(config.validation_issues().is_empty());
+}
+
+#[test]
+fn detects_touch_contradictions_before_launching_chromium() {
+    let config = StealthConfig::none().touch(true, 0);
+
+    assert_eq!(config.validation_issues().len(), 1);
 }
 
 #[test]
 fn rejects_cross_platform_identity_contradictions() {
-    let mut profile = chrome_linux();
-    profile.navigator.platform = "Win32".to_string();
+    let profile = BrowserProfileBuilder::new(chrome_linux())
+        .navigator_platform("Win32")
+        .build()
+        .unwrap_err();
 
-    let error = validate_profile(&profile).unwrap_err();
-    assert!(error.to_string().contains("disagree"));
+    assert!(matches!(profile, Error::Validation { .. }));
+    assert!(profile.to_string().contains("disagree"));
 }
 
 #[test]
 fn rejects_locale_language_contradictions() {
-    let mut profile = chrome_windows();
-    profile.locale.locale = "fr-FR".to_string();
+    let profile = BrowserProfileBuilder::new(chrome_windows())
+        .languages(["en-US", "en"])
+        .locale("fr-FR")
+        .languages(["en-US", "en"])
+        .build()
+        .unwrap_err();
 
-    let error = validate_profile(&profile).unwrap_err();
-    assert!(error.to_string().contains("first navigator language"));
+    assert!(profile.to_string().contains("first navigator language"));
 }
 
 #[test]
-fn requires_a_profile() {
-    assert!(StealthConfig::builder().build().is_err());
-}
-
-#[test]
-fn customizes_a_preset_without_breaking_coupled_locale_fields() -> anyhow::Result<()> {
+fn customizes_a_preset_without_breaking_coupled_locale_fields() -> stealth_oxide::Result<()> {
     let profile = BrowserProfileBuilder::new(chrome_linux())
         .locale("en-CA")
         .timezone("America/Toronto")
@@ -54,35 +161,9 @@ fn customizes_a_preset_without_breaking_coupled_locale_fields() -> anyhow::Resul
         .device_scale_factor(1.25)
         .build()?;
 
-    assert_eq!(profile.locale.locale, "en-CA");
-    assert_eq!(profile.navigator.languages[0], "en-CA");
-    assert_eq!(profile.locale.timezone, "America/Toronto");
-    assert_eq!(profile.screen.device_scale_factor, 1.25);
-    Ok(())
-}
-
-#[test]
-fn parses_authenticated_proxy_without_exposing_credentials() -> anyhow::Result<()> {
-    let proxy = ProxyConfig::parse("http://alice:secret@127.0.0.1:8080")?;
-
-    assert_eq!(proxy.server, "http://127.0.0.1:8080");
-    assert_eq!(proxy.username.as_deref(), Some("alice"));
-    assert_eq!(proxy.password.as_deref(), Some("secret"));
-    assert!(!proxy.label().contains("secret"));
-    Ok(())
-}
-
-#[test]
-fn rejects_proxy_without_an_explicit_port() {
-    assert!(ProxyConfig::parse("http://proxy.example").is_err());
-}
-
-#[test]
-fn parses_webshare_four_field_proxy_format() -> anyhow::Result<()> {
-    let proxy = ProxyConfig::parse("proxy.example:8080:alice:secret")?;
-
-    assert_eq!(proxy.server, "http://proxy.example:8080");
-    assert_eq!(proxy.username.as_deref(), Some("alice"));
-    assert_eq!(proxy.password.as_deref(), Some("secret"));
+    assert_eq!(profile.locale().locale, "en-CA");
+    assert_eq!(profile.navigator().languages[0], "en-CA");
+    assert_eq!(profile.locale().timezone, "America/Toronto");
+    assert_eq!(profile.screen().device_scale_factor, 1.25);
     Ok(())
 }
