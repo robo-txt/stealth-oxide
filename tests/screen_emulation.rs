@@ -10,6 +10,10 @@ use stealth_oxide::profiles::chrome_windows::chrome_windows;
 #[tokio::test]
 #[ignore = "requires a local Chromium process with working CDP sockets"]
 async fn screen_patch_keeps_cdp_controlled_surfaces_consistent() -> Result<()> {
+    let uses_native_screen = matches!(
+        std::env::var("STEALTH_OXIDE_USE_NATIVE_SCREEN").as_deref(),
+        Ok("1") | Ok("true")
+    );
     let profile = chrome_windows();
     let expected_screen = profile.screen.clone();
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
@@ -86,25 +90,48 @@ async fn screen_patch_keeps_cdp_controlled_surfaces_consistent() -> Result<()> {
     assert_eq!(observed["top"]["widthMediaMatches"], true);
     assert_eq!(observed["top"]["heightMediaMatches"], true);
     assert_eq!(observed["top"]["resolutionMediaMatches"], true);
-    assert_eq!(observed["top"]["innerWidth"].as_u64(), Some(1920));
-    assert_eq!(observed["top"]["innerHeight"].as_u64(), Some(1080));
-    assert_eq!(observed["top"]["visualViewportWidth"].as_u64(), Some(1920));
-    assert_eq!(observed["top"]["visualViewportHeight"].as_u64(), Some(1080));
+    if uses_native_screen {
+        assert!(observed["top"]["innerWidth"].as_u64().unwrap_or(0) > 0);
+        assert!(observed["top"]["innerHeight"].as_u64().unwrap_or(0) > 0);
+        assert_eq!(
+            observed["top"]["visualViewportWidth"],
+            observed["top"]["innerWidth"]
+        );
+        assert_eq!(
+            observed["top"]["visualViewportHeight"],
+            observed["top"]["innerHeight"]
+        );
+    } else {
+        assert_eq!(observed["top"]["innerWidth"].as_u64(), Some(1920));
+        assert_eq!(observed["top"]["innerHeight"].as_u64(), Some(1080));
+        assert_eq!(observed["top"]["visualViewportWidth"].as_u64(), Some(1920));
+        assert_eq!(observed["top"]["visualViewportHeight"].as_u64(), Some(1080));
+    }
     assert_eq!(observed["top"]["orientationType"], "landscape-primary");
     assert_eq!(observed["top"]["orientationAngle"], 0);
     assert_eq!(observed["top"]["landscapeMediaMatches"], true);
     assert_eq!(observed["top"]["portraitMediaMatches"], false);
 
-    // Chromium's device-metrics override does not expose separate available-area
-    // inputs. These assertions document the resulting CreepJS-visible limitation.
-    assert_eq!(
-        observed["top"]["availWidth"],
-        observed["top"]["screenWidth"]
-    );
-    assert_eq!(
-        observed["top"]["availHeight"],
-        observed["top"]["screenHeight"]
-    );
+    if uses_native_screen {
+        assert_eq!(
+            observed["top"]["availWidth"].as_u64(),
+            Some(u64::from(expected_screen.available_width))
+        );
+        assert_eq!(
+            observed["top"]["availHeight"].as_u64(),
+            Some(u64::from(expected_screen.available_height))
+        );
+    } else {
+        // CDP's device-metrics override has no separate available-area input.
+        assert_eq!(
+            observed["top"]["availWidth"],
+            observed["top"]["screenWidth"]
+        );
+        assert_eq!(
+            observed["top"]["availHeight"],
+            observed["top"]["screenHeight"]
+        );
+    }
     assert_eq!(observed["top"]["pixelDepth"], observed["top"]["colorDepth"]);
     assert!(observed["top"]["outerWidth"].as_u64().unwrap_or(0) > 0);
     assert!(observed["top"]["outerHeight"].as_u64().unwrap_or(0) > 0);

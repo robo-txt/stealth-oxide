@@ -7,6 +7,13 @@ use crate::page::StealthPage;
 use crate::profiles::ScreenProfile;
 
 pub async fn apply(page: &StealthPage, profile: &ScreenProfile) -> Result<()> {
+    if matches!(
+        std::env::var("STEALTH_OXIDE_USE_NATIVE_SCREEN").as_deref(),
+        Ok("1") | Ok("true")
+    ) {
+        return Ok(());
+    }
+
     page.inner().execute(params(profile)?).await?;
 
     Ok(())
@@ -40,6 +47,8 @@ mod tests {
         let profile = ScreenProfile {
             width: 1920,
             height: 1080,
+            available_width: 1920,
+            available_height: 1040,
             device_scale_factor: 1.25,
         };
 
@@ -67,6 +76,8 @@ mod tests {
         let profile = ScreenProfile {
             width: 1080,
             height: 1920,
+            available_width: 1080,
+            available_height: 1880,
             device_scale_factor: 1.0,
         };
 

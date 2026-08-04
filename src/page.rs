@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chromiumoxide::Page;
 
-use crate::patches::{navigator, network, screen};
+use crate::patches::{device_environment, navigator, network, screen, timezone_intl};
 use crate::profiles::BrowserProfile;
 
 pub struct StealthPage {
@@ -14,9 +14,11 @@ impl StealthPage {
     }
 
     pub async fn apply_profile(&self, profile: &BrowserProfile) -> Result<()> {
+        timezone_intl::apply(self, &profile.locale).await?;
         network::apply(self, &profile.navigator).await?;
         navigator::apply(self, &profile.navigator).await?;
         screen::apply(self, &profile.screen).await?;
+        device_environment::apply(self, &profile.device_environment).await?;
 
         Ok(())
     }

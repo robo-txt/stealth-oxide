@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chromiumoxide::cdp::browser_protocol::system_info::{GetInfoParams, GetInfoReturns};
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 
@@ -12,9 +13,31 @@ pub struct StealthBrowser {
 
 impl StealthBrowser {
     pub async fn launch(profile: BrowserProfile) -> Result<Self> {
-        let config = BrowserConfig::builder()
-            .build()
-            .map_err(anyhow::Error::msg)?;
+        // Apply launch-scoped identity inputs before any page or worker target
+        // exists. Page-scoped CDP user-agent overrides do not reach workers.
+        let mut config_builder = BrowserConfig::builder()
+            .hide()
+            .arg(("user-agent", profile.navigator.user_agent.as_str()));
+
+        if matches!(
+            std::env::var("STEALTH_OXIDE_HEADFUL").as_deref(),
+            Ok("1") | Ok("true")
+        ) {
+            config_builder = config_builder.with_head();
+        }
+
+        if matches!(
+            std::env::var("STEALTH_OXIDE_USE_MESA").as_deref(),
+            Ok("1") | Ok("true")
+        ) {
+            config_builder = config_builder
+                .arg(("use-gl", "angle"))
+                .arg(("use-angle", "gl"))
+                .arg("ignore-gpu-blocklist")
+                .arg("enable-gpu-rasterization");
+        }
+
+        let config = config_builder.build().map_err(anyhow::Error::msg)?;
 
         let (browser, mut handler) = Browser::launch(config).await?;
 
@@ -42,6 +65,14 @@ impl StealthBrowser {
 
     pub fn profile(&self) -> &BrowserProfile {
         &self.profile
+    }
+
+    pub async fn version(&self) -> Result<String> {
+        Ok(self.browser.version().await?.product)
+    }
+
+    pub async fn system_info(&self) -> Result<GetInfoReturns> {
+        Ok(self.browser.execute(GetInfoParams {}).await?.result)
     }
 
     pub async fn close(mut self) -> Result<()> {

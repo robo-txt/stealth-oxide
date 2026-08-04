@@ -51,6 +51,20 @@ fn chrome_windows_client_hints_match_user_agent() {
         .expect("client hints should include Google Chrome brand");
 
     assert_eq!(chrome_brand.version, major_version);
+
+    let full_chrome_brand = client_hints
+        .full_version_list
+        .iter()
+        .find(|brand| brand.brand == "Google Chrome")
+        .expect("full client hints should include Google Chrome brand");
+
+    assert_eq!(full_chrome_brand.version, "151.0.7922.71");
+    assert!(
+        profile
+            .navigator
+            .user_agent
+            .contains(&format!("Chrome/{}", full_chrome_brand.version))
+    );
 }
 
 #[test]
@@ -102,4 +116,44 @@ fn chrome_windows_full_version_list_matches_brands() {
             brand.version
         );
     }
+}
+
+#[test]
+fn chrome_windows_locale_is_consistent_with_navigator_languages() {
+    let profile = chrome_windows();
+
+    assert_eq!(profile.locale.locale, "en-US");
+    assert_eq!(profile.locale.timezone, "America/New_York");
+    assert_eq!(
+        profile.navigator.languages.first(),
+        Some(&profile.locale.locale)
+    );
+    assert!(!profile.locale.locale.contains(','));
+    assert!(!profile.locale.locale.contains("q="));
+}
+
+#[test]
+fn chrome_windows_device_environment_is_desktop_consistent() {
+    let profile = chrome_windows();
+    let environment = profile.device_environment;
+
+    assert_eq!(environment.color_scheme, "dark");
+    assert_eq!(environment.reduced_motion, "no-preference");
+    assert_eq!(environment.forced_colors, "none");
+    assert_eq!(environment.color_gamut, "srgb");
+    assert_eq!(environment.monochrome, "0");
+    assert!(!environment.touch_enabled);
+    assert_eq!(environment.max_touch_points, 0);
+}
+
+#[test]
+fn chrome_windows_models_desktop_work_area() {
+    let screen = chrome_windows().screen;
+
+    assert_eq!(screen.width, 1920);
+    assert_eq!(screen.height, 1080);
+    assert_eq!(screen.available_width, 1920);
+    assert_eq!(screen.available_height, 1040);
+    assert!(screen.available_width <= screen.width);
+    assert!(screen.available_height < screen.height);
 }

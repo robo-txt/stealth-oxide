@@ -1,0 +1,273 @@
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use chromiumoxide::cdp::browser_protocol::emulation::{
+    SetUserAgentOverrideParams, UserAgentBrandVersion, UserAgentMetadata,
+};
+use chromiumoxide::cdp::browser_protocol::target::{
+    EventAttachedToTarget, SessionId, SetAutoAttachParams,
+};
+use chromiumoxide::cdp::js_protocol::runtime::RunIfWaitingForDebuggerParams;
+use chromiumoxide::types::{Command, Method, MethodId};
+use futures::StreamExt;
+use serde::Serialize;
+use serde_json::Value;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpListener;
+use tokio::time::timeout;
+
+use stealth_oxide::browser::StealthBrowser;
+use stealth_oxide::profiles::chrome_windows::chrome_windows;
+use stealth_oxide::profiles::{NavigatorProfile, UserAgentClientHintsProfile};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SendMessageToTargetParams {
+    message: String,
+    session_id: SessionId,
+}
+
+impl Method for SendMessageToTargetParams {
+    fn identifier(&self) -> MethodId {
+        "Target.sendMessageToTarget".into()
+    }
+}
+
+impl Command for SendMessageToTargetParams {
+    type Response = Value;
+}
+
+fn user_agent_metadata(profile: &UserAgentClientHintsProfile) -> Result<UserAgentMetadata> {
+    let brands = profile
+        .brands
+        .iter()
+        .map(|brand| {
+            UserAgentBrandVersion::builder()
+                .brand(brand.brand.clone())
+                .version(brand.version.clone())
+                .build()
+                .map_err(anyhow::Error::msg)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let full_versions = profile
+        .full_version_list
+        .iter()
+        .map(|brand| {
+            UserAgentBrandVersion::builder()
+                .brand(brand.brand.clone())
+                .version(brand.version.clone())
+                .build()
+                .map_err(anyhow::Error::msg)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    UserAgentMetadata::builder()
+        .brands(brands)
+        .full_version_lists(full_versions)
+        .platform(profile.platform.clone())
+        .platform_version(profile.platform_version.clone())
+        .architecture(profile.architecture.clone())
+        .bitness(profile.bitness.clone())
+        .model(profile.model.clone())
+        .mobile(profile.mobile)
+        .build()
+        .map_err(anyhow::Error::msg)
+}
+
+fn user_agent_override(profile: &NavigatorProfile) -> Result<SetUserAgentOverrideParams> {
+    let mut builder = SetUserAgentOverrideParams::builder()
+        .user_agent(profile.user_agent.clone())
+        .accept_language(profile.languages.join(","))
+        .platform(profile.platform.clone());
+    if let Some(hints) = &profile.client_hints {
+        builder = builder.user_agent_metadata(user_agent_metadata(hints)?);
+    }
+    builder.build().map_err(anyhow::Error::msg)
+}
+
+fn nested_message<T: Method + Serialize>(id: u64, command: &T) -> Result<String> {
+    Ok(serde_json::json!({
+        "id": id,
+        "method": command.identifier(),
+        "params": command,
+    })
+    .to_string())
+}
+
+async fn loopback_page() -> Result<String> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let address = listener.local_addr()?;
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let body = "<!doctype html><p>worker consistency</p>";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+    Ok(format!("http://{address}/"))
+}
+
+#[tokio::test]
+#[ignore = "requires a local Chromium process with working CDP sockets"]
+async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
+    let profile = chrome_windows();
+    let worker_override = user_agent_override(&profile.navigator)?;
+    let page_url = loopback_page().await?;
+    let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
+        .await
+        .context("timed out while launching Chromium")??;
+    let page = timeout(Duration::from_secs(20), browser.new_page(&page_url))
+        .await
+        .context("timed out while creating the patched page")??;
+
+    page.inner()
+        .execute(SetAutoAttachParams::new(false, false))
+        .await?;
+    let mut attached_targets = page
+        .inner()
+        .event_listener::<EventAttachedToTarget>()
+        .await?;
+    page.inner()
+        .execute(
+            SetAutoAttachParams::builder()
+                .auto_attach(true)
+                .wait_for_debugger_on_start(true)
+                .flatten(false)
+                .build()
+                .map_err(anyhow::Error::msg)?,
+        )
+        .await?;
+
+    let worker_page = page.inner().clone();
+    let worker_handler = tokio::spawn(async move {
+        while let Some(event) = attached_targets.next().await {
+            let is_worker = matches!(
+                event.target_info.r#type.as_str(),
+                "worker" | "shared_worker" | "service_worker"
+            );
+            if is_worker {
+                worker_page
+                    .execute(SendMessageToTargetParams {
+                        message: nested_message(1, &worker_override)?,
+                        session_id: event.session_id.clone(),
+                    })
+                    .await?;
+            }
+            worker_page
+                .execute(SendMessageToTargetParams {
+                    message: nested_message(2, &RunIfWaitingForDebuggerParams::default())?,
+                    session_id: event.session_id.clone(),
+                })
+                .await?;
+            if is_worker {
+                break;
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+
+    let observed: Value = timeout(
+        Duration::from_secs(20),
+        page.inner().evaluate(
+            r#"
+            (async () => {
+                const snapshotSource = `
+                    const snapshot = async () => {
+                        const hints = navigator.userAgentData ?
+                            await navigator.userAgentData.getHighEntropyValues([
+                                'platform', 'platformVersion', 'architecture',
+                                'bitness', 'model', 'uaFullVersion'
+                            ]) : null;
+                        const canvas = new OffscreenCanvas(16, 16);
+                        const gl = canvas.getContext('webgl');
+                        const debug = gl?.getExtension('WEBGL_debug_renderer_info');
+                        return {
+                            userAgent: navigator.userAgent,
+                            platform: navigator.platform,
+                            language: navigator.language,
+                            languages: [...navigator.languages],
+                            hardwareConcurrency: navigator.hardwareConcurrency,
+                            deviceMemory: navigator.deviceMemory ?? null,
+                            locale: Intl.DateTimeFormat().resolvedOptions().locale,
+                            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                            userAgentData: hints,
+                            webglVendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : null,
+                            webglRenderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null
+                        };
+                    };
+                `;
+                const workerSource = snapshotSource + `snapshot().then(postMessage);`;
+                const workerUrl = URL.createObjectURL(
+                    new Blob([workerSource], { type: 'text/javascript' })
+                );
+                const worker = new Worker(workerUrl);
+                const workerSnapshot = await new Promise((resolve, reject) => {
+                    worker.onmessage = event => resolve(event.data);
+                    worker.onerror = reject;
+                });
+                worker.terminate();
+                URL.revokeObjectURL(workerUrl);
+
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl');
+                const debug = gl?.getExtension('WEBGL_debug_renderer_info');
+                const hints = navigator.userAgentData ?
+                    await navigator.userAgentData.getHighEntropyValues([
+                        'platform', 'platformVersion', 'architecture',
+                        'bitness', 'model', 'uaFullVersion'
+                    ]) : null;
+                const windowSnapshot = {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    languages: [...navigator.languages],
+                    hardwareConcurrency: navigator.hardwareConcurrency,
+                    deviceMemory: navigator.deviceMemory ?? null,
+                    locale: Intl.DateTimeFormat().resolvedOptions().locale,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    userAgentData: hints,
+                    webglVendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : null,
+                    webglRenderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null
+                };
+                const mismatches = Object.keys(windowSnapshot).filter(key =>
+                    JSON.stringify(windowSnapshot[key]) !== JSON.stringify(workerSnapshot[key])
+                );
+                return { window: windowSnapshot, worker: workerSnapshot, mismatches };
+            })()
+            "#,
+        ),
+    )
+    .await
+    .context("timed out while reading worker surfaces")??
+    .into_value()?;
+
+    timeout(Duration::from_secs(20), worker_handler)
+        .await
+        .context("timed out while applying the worker-target override")???;
+
+    println!("observed worker consistency: {observed:#}");
+
+    timeout(Duration::from_secs(20), browser.close())
+        .await
+        .context("timed out while closing Chromium")??;
+
+    for property in [
+        "userAgent",
+        "platform",
+        "hardwareConcurrency",
+        "deviceMemory",
+        "locale",
+        "timezone",
+        "webglVendor",
+        "webglRenderer",
+    ] {
+        assert_eq!(observed["worker"][property], observed["window"][property]);
+    }
+
+    assert_eq!(observed["mismatches"], serde_json::json!([]));
+    Ok(())
+}
