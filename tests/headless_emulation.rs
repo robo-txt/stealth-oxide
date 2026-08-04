@@ -4,14 +4,15 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::time::timeout;
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 #[tokio::test]
 #[ignore = "requires a local Chromium process with working CDP sockets"]
 async fn direct_headless_signals_are_disabled_across_page_iframe_and_worker() -> Result<()> {
     let profile = chrome_windows();
-    let expected_user_agent = profile.navigator.user_agent.clone();
+    let expected_user_agent = profile.navigator().user_agent.clone();
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
         .await
         .context("timed out while launching Chromium")??;

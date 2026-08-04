@@ -1,105 +1,78 @@
-use anyhow::{Result, bail};
-
-use crate::profiles::BrowserProfile;
+use crate::error::ValidationIssue;
 use crate::profiles::chrome_linux::chrome_linux;
 use crate::profiles::chrome_macos::chrome_macos;
 use crate::profiles::chrome_windows::chrome_windows;
+use crate::profiles::{
+    BrowserProfile, ColorGamut, ColorScheme, ForcedColors, MediaFeaturesConfig, NavigatorProfile,
+    ReducedMotion, ScreenConfig, TouchConfig, UserAgentClientHintsProfile,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProxyConfig {
-    pub server: String,
-    pub username: Option<String>,
-    pub password: Option<String>,
-}
-
-impl ProxyConfig {
-    pub fn new(server: impl Into<String>) -> Result<Self> {
-        let proxy = Self {
-            server: server.into(),
-            username: None,
-            password: None,
-        };
-        proxy.validate()?;
-        Ok(proxy)
-    }
-
-    pub fn parse(value: &str) -> Result<Self> {
-        if !value.contains("://") {
-            let fields = value.split(':').collect::<Vec<_>>();
-            if fields.len() != 4 || fields.iter().any(|field| field.is_empty()) {
-                bail!("scheme-less proxies must use host:port:username:password");
-            }
-            let proxy = Self {
-                server: format!("http://{}:{}", fields[0], fields[1]),
-                username: Some(fields[2].to_string()),
-                password: Some(fields[3].to_string()),
-            };
-            proxy.validate()?;
-            return Ok(proxy);
-        }
-
-        let mut parsed = url::Url::parse(value)
-            .map_err(|error| anyhow::anyhow!("invalid proxy URL: {error}"))?;
-        if !matches!(parsed.scheme(), "http" | "https" | "socks4" | "socks5") {
-            bail!("proxy scheme must be http, https, socks4, or socks5");
-        }
-        if parsed.host().is_none() || parsed.port().is_none() {
-            bail!("proxy URL must include a host and port");
-        }
-        if parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() {
-            bail!("proxy URL cannot contain a path, query, or fragment");
-        }
-
-        let username = (!parsed.username().is_empty()).then(|| parsed.username().to_string());
-        let password = parsed.password().map(str::to_string);
-        parsed
-            .set_username("")
-            .map_err(|_| anyhow::anyhow!("failed to remove proxy username"))?;
-        parsed
-            .set_password(None)
-            .map_err(|_| anyhow::anyhow!("failed to remove proxy password"))?;
-        let proxy = Self {
-            server: parsed.as_str().trim_end_matches('/').to_string(),
-            username,
-            password,
-        };
-        proxy.validate()?;
-        Ok(proxy)
-    }
-
-    pub fn credentials(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
-        self.username = Some(username.into());
-        self.password = Some(password.into());
-        self
-    }
-
-    pub fn label(&self) -> String {
-        if self.username.is_some() {
-            format!("{} (authenticated)", self.server)
-        } else {
-            self.server.clone()
-        }
-    }
-
-    pub fn validate(&self) -> Result<()> {
-        if self.server.chars().any(char::is_whitespace) {
-            bail!("proxy server cannot contain whitespace");
-        }
-        if self.username.is_some() != self.password.is_some() {
-            bail!("proxy username and password must be provided together");
-        }
-        Ok(())
-    }
-}
-
+/// Built-in desktop profile selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlatformProfile {
+    /// Chrome running on Linux.
     Linux,
+    /// Chrome running on macOS.
     MacOS,
+    /// Chrome running on Windows.
     Windows,
 }
 
+/// An independently selectable CDP patch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Patch {
+    /// User agent, navigator platform, languages, and UA Client Hints.
+    Identity,
+    /// Intl locale override.
+    Locale,
+    /// IANA timezone override.
+    Timezone,
+    /// Screen and viewport metrics.
+    Screen,
+    /// CSS media feature overrides.
+    MediaFeatures,
+    /// Touch capability emulation.
+    Touch,
+}
+
+/// Controls how one patch obtains its value.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum PatchMode<T> {
+    /// Preserve the value already supplied by Chromium or the host environment.
+    Native,
+    /// Apply the supplied override through CDP.
+    Override(T),
+    /// Exclude the patch from the application plan.
+    Disabled,
+}
+
+/// Non-generic state of a configured patch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatchState {
+    /// Chromium's existing value is preserved.
+    Native,
+    /// A configured value will be applied.
+    Override,
+    /// The patch is excluded from the plan.
+    Disabled,
+}
+
+/// Controls how cross-surface contradictions are handled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConsistencyPolicy {
+    /// Reject known contradictions before executing any CDP command.
+    #[default]
+    Strict,
+    /// Apply valid CDP values and include consistency issues in the report.
+    Warn,
+    /// Apply exactly what the caller requested, subject only to CDP requirements.
+    Permissive,
+}
+
 impl PlatformProfile {
+    /// Builds the selected profile.
     pub fn profile(self) -> BrowserProfile {
         match self {
             Self::Linux => chrome_linux(),
@@ -109,236 +82,452 @@ impl PlatformProfile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PatchSet {
-    pub identity: bool,
-    pub locale_and_timezone: bool,
-    pub screen: bool,
-    pub device_environment: bool,
-}
-
-impl PatchSet {
-    pub fn all() -> Self {
-        Self {
-            identity: true,
-            locale_and_timezone: true,
-            screen: true,
-            device_environment: true,
-        }
-    }
-
-    pub fn none() -> Self {
-        Self {
-            identity: false,
-            locale_and_timezone: false,
-            screen: false,
-            device_environment: false,
-        }
-    }
-
-    pub fn identity(mut self, enabled: bool) -> Self {
-        self.identity = enabled;
-        self
-    }
-
-    pub fn locale_and_timezone(mut self, enabled: bool) -> Self {
-        self.locale_and_timezone = enabled;
-        self
-    }
-
-    pub fn screen(mut self, enabled: bool) -> Self {
-        self.screen = enabled;
-        self
-    }
-
-    pub fn device_environment(mut self, enabled: bool) -> Self {
-        self.device_environment = enabled;
-        self
-    }
-}
-
-impl Default for PatchSet {
-    fn default() -> Self {
-        Self::all()
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LaunchOptions {
-    pub headful: bool,
-    pub mesa: bool,
-    pub speech_dispatcher: bool,
-    pub proxy: Option<ProxyConfig>,
-}
-
-impl LaunchOptions {
-    pub fn headful(mut self, enabled: bool) -> Self {
-        self.headful = enabled;
-        self
-    }
-
-    pub fn mesa(mut self, enabled: bool) -> Self {
-        self.mesa = enabled;
-        self
-    }
-
-    pub fn speech_dispatcher(mut self, enabled: bool) -> Self {
-        self.speech_dispatcher = enabled;
-        self
-    }
-
-    pub fn proxy(mut self, proxy: ProxyConfig) -> Self {
-        self.proxy = Some(proxy);
-        self
-    }
-
-    pub(crate) fn from_legacy_environment() -> Self {
-        Self::default()
-            .headful(env_enabled("STEALTH_OXIDE_HEADFUL"))
-            .mesa(env_enabled("STEALTH_OXIDE_USE_MESA"))
-            .speech_dispatcher(env_enabled("STEALTH_OXIDE_SPEECH_DISPATCHER"))
-    }
-}
-
-#[derive(Debug, Clone)]
+/// Fully configurable patch selection and override values.
+#[derive(Debug, Clone, PartialEq)]
 pub struct StealthConfig {
-    pub profile: BrowserProfile,
-    pub launch: LaunchOptions,
-    pub patches: PatchSet,
+    identity: PatchMode<NavigatorProfile>,
+    locale: PatchMode<String>,
+    timezone: PatchMode<String>,
+    screen: PatchMode<ScreenConfig>,
+    media_features: PatchMode<MediaFeaturesConfig>,
+    touch: PatchMode<TouchConfig>,
+    policy: ConsistencyPolicy,
+    defaults: BrowserProfile,
 }
 
 impl StealthConfig {
-    pub fn builder() -> StealthConfigBuilder {
-        StealthConfigBuilder::default()
+    /// Creates the recommended Linux desktop configuration.
+    pub fn recommended() -> Self {
+        #[cfg(target_os = "windows")]
+        let platform = PlatformProfile::Windows;
+        #[cfg(target_os = "macos")]
+        let platform = PlatformProfile::MacOS;
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let platform = PlatformProfile::Linux;
+
+        Self::for_platform(platform)
     }
 
-    pub fn new(profile: BrowserProfile) -> Result<Self> {
-        Self::builder().profile(profile).build()
-    }
-
-    pub fn validate(&self) -> Result<()> {
-        validate_profile(&self.profile)?;
-        if let Some(proxy) = &self.launch.proxy {
-            proxy.validate()?;
+    /// Creates a configuration with every patch disabled.
+    pub fn none() -> Self {
+        let defaults = PlatformProfile::Linux.profile();
+        Self {
+            identity: PatchMode::Disabled,
+            locale: PatchMode::Disabled,
+            timezone: PatchMode::Disabled,
+            screen: PatchMode::Disabled,
+            media_features: PatchMode::Disabled,
+            touch: PatchMode::Disabled,
+            policy: ConsistencyPolicy::Strict,
+            defaults,
         }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct StealthConfigBuilder {
-    profile: Option<BrowserProfile>,
-    launch: LaunchOptions,
-    patches: PatchSet,
-}
-
-impl StealthConfigBuilder {
-    pub fn platform(mut self, platform: PlatformProfile) -> Self {
-        self.profile = Some(platform.profile());
-        self
     }
 
-    pub fn profile(mut self, profile: BrowserProfile) -> Self {
-        self.profile = Some(profile);
-        self
+    /// Creates a complete override configuration from a built-in platform preset.
+    pub fn for_platform(platform: PlatformProfile) -> Self {
+        Self::from_profile(platform.profile())
     }
 
-    pub fn launch_options(mut self, launch: LaunchOptions) -> Self {
-        self.launch = launch;
-        self
-    }
-
-    pub fn patches(mut self, patches: PatchSet) -> Self {
-        self.patches = patches;
-        self
-    }
-
-    pub fn headful(mut self, enabled: bool) -> Self {
-        self.launch.headful = enabled;
-        self
-    }
-
-    pub fn mesa(mut self, enabled: bool) -> Self {
-        self.launch.mesa = enabled;
-        self
-    }
-
-    pub fn speech_dispatcher(mut self, enabled: bool) -> Self {
-        self.launch.speech_dispatcher = enabled;
-        self
-    }
-
-    pub fn proxy(mut self, proxy: ProxyConfig) -> Self {
-        self.launch.proxy = Some(proxy);
-        self
-    }
-
-    pub fn build(self) -> Result<StealthConfig> {
-        let config = StealthConfig {
-            profile: self
-                .profile
-                .ok_or_else(|| anyhow::anyhow!("a browser profile is required"))?,
-            launch: self.launch,
-            patches: self.patches,
-        };
-        config.validate()?;
-        Ok(config)
-    }
-}
-
-pub fn validate_profile(profile: &BrowserProfile) -> Result<()> {
-    if profile.screen.width == 0 || profile.screen.height == 0 {
-        bail!("screen dimensions must be greater than zero");
-    }
-    if profile.screen.available_width > profile.screen.width
-        || profile.screen.available_height > profile.screen.height
-    {
-        bail!("available screen dimensions cannot exceed screen dimensions");
-    }
-    if !profile.screen.device_scale_factor.is_finite() || profile.screen.device_scale_factor <= 0.0
-    {
-        bail!("device scale factor must be finite and greater than zero");
-    }
-    if profile.navigator.languages.first() != Some(&profile.locale.locale) {
-        bail!("the first navigator language must match the Intl locale");
-    }
-    if !profile.device_environment.touch_enabled && profile.device_environment.max_touch_points != 0
-    {
-        bail!("a non-touch profile must report zero maximum touch points");
-    }
-
-    if let Some(hints) = &profile.navigator.client_hints {
-        let ua = &profile.navigator.user_agent;
-        let platform_is_consistent = match hints.platform.as_str() {
-            "Linux" => ua.contains("Linux") && profile.navigator.platform.contains("Linux"),
-            "Windows" => ua.contains("Windows") && profile.navigator.platform == "Win32",
-            "macOS" => ua.contains("Mac OS X") && profile.navigator.platform == "MacIntel",
-            _ => true,
-        };
-        if !platform_is_consistent {
-            bail!("user agent, navigator platform, and UA Client Hints platform disagree");
+    /// Creates a complete override configuration from an editable profile.
+    pub fn from_profile(profile: BrowserProfile) -> Self {
+        Self {
+            identity: PatchMode::Override(profile.navigator.clone()),
+            locale: PatchMode::Override(profile.locale.locale.clone()),
+            timezone: PatchMode::Override(profile.locale.timezone.clone()),
+            screen: PatchMode::Override((&profile.screen).into()),
+            media_features: PatchMode::Override((&profile.device_environment).into()),
+            touch: PatchMode::Override((&profile.device_environment).into()),
+            policy: ConsistencyPolicy::Strict,
+            defaults: profile,
         }
+    }
 
-        let ua_major = ua
-            .split_whitespace()
-            .find_map(|part| part.strip_prefix("Chrome/"))
-            .and_then(|version| version.split('.').next());
-        if let Some(ua_major) = ua_major {
-            for brand in hints
-                .brands
-                .iter()
-                .filter(|brand| brand.brand == "Chromium" || brand.brand == "Google Chrome")
-            {
-                if brand.version != ua_major {
-                    bail!("Chrome user-agent and UA Client Hints major versions disagree");
-                }
+    /// Selects strict, warning, or permissive consistency handling.
+    pub const fn consistency_policy(mut self, policy: ConsistencyPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    /// Enables a patch using the selected platform's default value.
+    pub fn enable(mut self, patch: Patch) -> Self {
+        match patch {
+            Patch::Identity => self.identity = PatchMode::Override(self.defaults.navigator.clone()),
+            Patch::Locale => self.locale = PatchMode::Override(self.defaults.locale.locale.clone()),
+            Patch::Timezone => {
+                self.timezone = PatchMode::Override(self.defaults.locale.timezone.clone());
+            }
+            Patch::Screen => self.screen = PatchMode::Override((&self.defaults.screen).into()),
+            Patch::MediaFeatures => {
+                self.media_features =
+                    PatchMode::Override((&self.defaults.device_environment).into());
+            }
+            Patch::Touch => {
+                self.touch = PatchMode::Override((&self.defaults.device_environment).into());
             }
         }
+        self
     }
 
-    Ok(())
+    /// Disables a patch completely.
+    pub fn disable(mut self, patch: Patch) -> Self {
+        match patch {
+            Patch::Identity => self.identity = PatchMode::Disabled,
+            Patch::Locale => self.locale = PatchMode::Disabled,
+            Patch::Timezone => self.timezone = PatchMode::Disabled,
+            Patch::Screen => self.screen = PatchMode::Disabled,
+            Patch::MediaFeatures => self.media_features = PatchMode::Disabled,
+            Patch::Touch => self.touch = PatchMode::Disabled,
+        }
+        self
+    }
+
+    /// Preserves Chromium's native value for a patch.
+    pub fn use_native(mut self, patch: Patch) -> Self {
+        match patch {
+            Patch::Identity => self.identity = PatchMode::Native,
+            Patch::Locale => self.locale = PatchMode::Native,
+            Patch::Timezone => self.timezone = PatchMode::Native,
+            Patch::Screen => self.screen = PatchMode::Native,
+            Patch::MediaFeatures => self.media_features = PatchMode::Native,
+            Patch::Touch => self.touch = PatchMode::Native,
+        }
+        self
+    }
+
+    /// Replaces the complete identity override.
+    pub fn identity(mut self, identity: NavigatorProfile) -> Self {
+        self.identity = PatchMode::Override(identity);
+        self
+    }
+
+    /// Sets the complete identity patch mode.
+    pub fn identity_patch(mut self, mode: PatchMode<NavigatorProfile>) -> Self {
+        self.identity = mode;
+        self
+    }
+
+    /// Replaces UA Client Hints and enables identity patching.
+    pub fn client_hints(mut self, hints: Option<UserAgentClientHintsProfile>) -> Self {
+        self.identity_value_mut().client_hints = hints;
+        self
+    }
+
+    /// Overrides the user-agent string and enables identity patching.
+    pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.identity_value_mut().user_agent = user_agent.into();
+        self
+    }
+
+    /// Overrides navigator platform and enables identity patching.
+    pub fn navigator_platform(mut self, platform: impl Into<String>) -> Self {
+        self.identity_value_mut().platform = platform.into();
+        self
+    }
+
+    /// Overrides navigator languages and enables identity patching.
+    pub fn languages<I, S>(mut self, languages: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.identity_value_mut().languages = languages.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Overrides the Intl locale and enables locale patching.
+    pub fn locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = PatchMode::Override(locale.into());
+        self
+    }
+
+    /// Sets the complete locale patch mode.
+    pub fn locale_patch(mut self, mode: PatchMode<String>) -> Self {
+        self.locale = mode;
+        self
+    }
+
+    /// Overrides the IANA timezone and enables timezone patching.
+    pub fn timezone(mut self, timezone: impl Into<String>) -> Self {
+        self.timezone = PatchMode::Override(timezone.into());
+        self
+    }
+
+    /// Sets the complete timezone patch mode.
+    pub fn timezone_patch(mut self, mode: PatchMode<String>) -> Self {
+        self.timezone = mode;
+        self
+    }
+
+    /// Replaces the complete screen override.
+    pub fn screen(mut self, screen: ScreenConfig) -> Self {
+        self.screen = PatchMode::Override(screen);
+        self
+    }
+
+    /// Sets the complete screen patch mode.
+    pub fn screen_patch(mut self, mode: PatchMode<ScreenConfig>) -> Self {
+        self.screen = mode;
+        self
+    }
+
+    /// Overrides total screen dimensions and enables screen patching.
+    pub fn screen_size(mut self, width: u32, height: u32) -> Self {
+        let screen = self.screen_value_mut();
+        screen.width = width;
+        screen.height = height;
+        self
+    }
+
+    /// Overrides the device scale factor and enables screen patching.
+    pub fn device_scale_factor(mut self, factor: f64) -> Self {
+        self.screen_value_mut().device_scale_factor = factor;
+        self
+    }
+
+    /// Replaces all media-feature overrides.
+    pub fn media_features(mut self, media: MediaFeaturesConfig) -> Self {
+        self.media_features = PatchMode::Override(media);
+        self
+    }
+
+    /// Sets the complete media-feature patch mode.
+    pub fn media_features_patch(mut self, mode: PatchMode<MediaFeaturesConfig>) -> Self {
+        self.media_features = mode;
+        self
+    }
+
+    /// Overrides `prefers-color-scheme` and enables media-feature patching.
+    pub fn color_scheme(mut self, value: ColorScheme) -> Self {
+        self.media_features_value_mut().color_scheme = value;
+        self
+    }
+
+    /// Overrides `prefers-reduced-motion` and enables media-feature patching.
+    pub fn reduced_motion(mut self, value: ReducedMotion) -> Self {
+        self.media_features_value_mut().reduced_motion = value;
+        self
+    }
+
+    /// Overrides `forced-colors` and enables media-feature patching.
+    pub fn forced_colors(mut self, value: ForcedColors) -> Self {
+        self.media_features_value_mut().forced_colors = value;
+        self
+    }
+
+    /// Overrides `color-gamut` and enables media-feature patching.
+    pub fn color_gamut(mut self, value: ColorGamut) -> Self {
+        self.media_features_value_mut().color_gamut = value;
+        self
+    }
+
+    /// Replaces the touch override.
+    pub fn touch(mut self, enabled: bool, max_touch_points: u32) -> Self {
+        self.touch = PatchMode::Override(TouchConfig {
+            enabled,
+            max_touch_points,
+        });
+        self
+    }
+
+    /// Sets the complete touch patch mode.
+    pub fn touch_patch(mut self, mode: PatchMode<TouchConfig>) -> Self {
+        self.touch = mode;
+        self
+    }
+
+    /// Returns the selected consistency policy.
+    pub const fn policy(&self) -> ConsistencyPolicy {
+        self.policy
+    }
+
+    /// Returns the current state of an individual patch.
+    pub fn patch_state(&self, patch: Patch) -> PatchState {
+        match patch {
+            Patch::Identity => state(&self.identity),
+            Patch::Locale => state(&self.locale),
+            Patch::Timezone => state(&self.timezone),
+            Patch::Screen => state(&self.screen),
+            Patch::MediaFeatures => state(&self.media_features),
+            Patch::Touch => state(&self.touch),
+        }
+    }
+
+    /// Builds the deterministic patch order and validates it without a browser.
+    pub fn plan(&self) -> PatchPlan {
+        let operations = [
+            Patch::Locale,
+            Patch::Timezone,
+            Patch::Identity,
+            Patch::Screen,
+            Patch::MediaFeatures,
+            Patch::Touch,
+        ]
+        .into_iter()
+        .map(|patch| (patch, self.patch_state(patch)))
+        .collect();
+        PatchPlan {
+            operations,
+            issues: crate::validation::validate_config(self),
+        }
+    }
+
+    /// Returns every known consistency issue without applying any patch.
+    pub fn validation_issues(&self) -> Vec<ValidationIssue> {
+        self.plan().issues
+    }
+
+    /// Returns the configured identity override, if identity is in override mode.
+    pub fn identity_override(&self) -> Option<&NavigatorProfile> {
+        override_value(&self.identity)
+    }
+
+    /// Returns the configured locale override, if locale is in override mode.
+    pub fn locale_override(&self) -> Option<&str> {
+        override_value(&self.locale).map(String::as_str)
+    }
+
+    /// Returns the configured timezone override, if timezone is in override mode.
+    pub fn timezone_override(&self) -> Option<&str> {
+        override_value(&self.timezone).map(String::as_str)
+    }
+
+    /// Returns the configured screen override, if screen is in override mode.
+    pub fn screen_override(&self) -> Option<&ScreenConfig> {
+        override_value(&self.screen)
+    }
+
+    /// Returns the configured media-feature override, if enabled.
+    pub fn media_features_override(&self) -> Option<&MediaFeaturesConfig> {
+        override_value(&self.media_features)
+    }
+
+    /// Returns the configured touch override, if enabled.
+    pub fn touch_override(&self) -> Option<&TouchConfig> {
+        override_value(&self.touch)
+    }
+
+    pub(crate) fn identity_mode(&self) -> &PatchMode<NavigatorProfile> {
+        &self.identity
+    }
+
+    pub(crate) fn locale_mode(&self) -> &PatchMode<String> {
+        &self.locale
+    }
+
+    pub(crate) fn timezone_mode(&self) -> &PatchMode<String> {
+        &self.timezone
+    }
+
+    pub(crate) fn screen_mode(&self) -> &PatchMode<ScreenConfig> {
+        &self.screen
+    }
+
+    pub(crate) fn media_features_mode(&self) -> &PatchMode<MediaFeaturesConfig> {
+        &self.media_features
+    }
+
+    pub(crate) fn touch_mode(&self) -> &PatchMode<TouchConfig> {
+        &self.touch
+    }
+
+    fn identity_value_mut(&mut self) -> &mut NavigatorProfile {
+        if !matches!(self.identity, PatchMode::Override(_)) {
+            self.identity = PatchMode::Override(self.defaults.navigator.clone());
+        }
+        let PatchMode::Override(value) = &mut self.identity else {
+            unreachable!("identity was replaced with an override")
+        };
+        value
+    }
+
+    fn screen_value_mut(&mut self) -> &mut ScreenConfig {
+        if !matches!(self.screen, PatchMode::Override(_)) {
+            self.screen = PatchMode::Override((&self.defaults.screen).into());
+        }
+        let PatchMode::Override(value) = &mut self.screen else {
+            unreachable!("screen was replaced with an override")
+        };
+        value
+    }
+
+    fn media_features_value_mut(&mut self) -> &mut MediaFeaturesConfig {
+        if !matches!(self.media_features, PatchMode::Override(_)) {
+            self.media_features = PatchMode::Override((&self.defaults.device_environment).into());
+        }
+        let PatchMode::Override(value) = &mut self.media_features else {
+            unreachable!("media features were replaced with an override")
+        };
+        value
+    }
 }
 
-fn env_enabled(name: &str) -> bool {
-    matches!(std::env::var(name).as_deref(), Ok("1") | Ok("true"))
+impl Default for StealthConfig {
+    fn default() -> Self {
+        Self::recommended()
+    }
+}
+
+fn state<T>(mode: &PatchMode<T>) -> PatchState {
+    match mode {
+        PatchMode::Native => PatchState::Native,
+        PatchMode::Override(_) => PatchState::Override,
+        PatchMode::Disabled => PatchState::Disabled,
+    }
+}
+
+fn override_value<T>(mode: &PatchMode<T>) -> Option<&T> {
+    match mode {
+        PatchMode::Override(value) => Some(value),
+        PatchMode::Native | PatchMode::Disabled => None,
+    }
+}
+
+/// Result of applying a stealth configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ApplyReport {
+    pub(crate) applied: Vec<Patch>,
+    pub(crate) skipped: Vec<Patch>,
+    pub(crate) native: Vec<Patch>,
+    pub(crate) warnings: Vec<ValidationIssue>,
+}
+
+/// Deterministic patch order and validation result prepared without a browser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchPlan {
+    operations: Vec<(Patch, PatchState)>,
+    issues: Vec<ValidationIssue>,
+}
+
+impl PatchPlan {
+    /// Ordered patch states that will be processed by [`StealthConfig::apply`].
+    pub fn operations(&self) -> &[(Patch, PatchState)] {
+        &self.operations
+    }
+
+    /// Known consistency issues in this plan.
+    pub fn issues(&self) -> &[ValidationIssue] {
+        &self.issues
+    }
+}
+
+impl ApplyReport {
+    /// Patches whose CDP commands completed successfully.
+    pub fn applied(&self) -> &[Patch] {
+        &self.applied
+    }
+
+    /// Patches explicitly disabled by the caller.
+    pub fn skipped(&self) -> &[Patch] {
+        &self.skipped
+    }
+
+    /// Patches configured to preserve Chromium's native values.
+    pub fn native(&self) -> &[Patch] {
+        &self.native
+    }
+
+    /// Non-fatal consistency issues produced in warning mode.
+    pub fn warnings(&self) -> &[ValidationIssue] {
+        &self.warnings
+    }
 }

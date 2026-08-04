@@ -4,7 +4,8 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::time::{Instant, sleep};
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::BrowserSession as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 const CREEPJS_URL: &str = "https://abrahamjuliot.github.io/creepjs/";

@@ -53,7 +53,7 @@ RUN chmod 0755 /usr/local/bin/stealth-oxide-entrypoint \
     && chown -R stealth:stealth /workspace /home/stealth
 
 WORKDIR /workspace
-COPY --chown=stealth:stealth Cargo.toml Cargo.lock ./
+COPY --chown=stealth:stealth Cargo.toml Cargo.lock README.md LICENSE ./
 COPY --chown=stealth:stealth src ./src
 COPY --chown=stealth:stealth tests ./tests
 COPY --chown=stealth:stealth examples ./examples

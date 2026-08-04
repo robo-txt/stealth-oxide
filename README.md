@@ -1,266 +1,227 @@
 # stealth-oxide
 
-`stealth-oxide` is a Rust library built on `chromiumoxide`. It applies coherent browser profiles through typed Chrome DevTools Protocol commands before the first site navigation.
+`stealth-oxide` applies configurable, typed Chrome DevTools Protocol patches to
+an existing [`chromiumoxide`](https://crates.io/crates/chromiumoxide) page.
 
-The crate provides Linux, Windows, and macOS Chrome presets, configurable CDP patch groups, launch options, and validation for common cross-surface contradictions. It does not inject JavaScript into page APIs.
+The crate provides Playwright-Stealth-style control: start with recommended
+defaults or no patches, enable or disable operations independently, preserve
+native browser values, and override every modeled value. Browser launch,
+proxies, authentication, page creation, navigation, and lifecycle remain under
+the application's control.
 
 ## Installation
 
-Until the crate is published to crates.io, depend on the Git repository:
+Until the first crates.io release, depend on the repository:
 
 ```toml
 [dependencies]
 stealth-oxide = { git = "https://github.com/robo-txt/stealth-oxide.git" }
-tokio = { version = "1", features = ["full"] }
+chromiumoxide = "0.9.1"
 anyhow = "1"
+futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-Chromium or Chrome must be installed on the host. Container support is provided by the included `Dockerfile` and `compose.yaml`.
+Rust 1.86 or newer is required by the resolved Chromiumoxide dependency graph.
 
-## Quick start
+## Recommended configuration
 
-Use the Linux preset when Chromium runs in the included Linux container:
+Create an `about:blank` page, apply the configuration, and navigate only after
+patching succeeds:
 
-```rust
+```rust,no_run
 use anyhow::Result;
-use stealth_oxide::{PlatformProfile, StealthBrowser, StealthConfig};
+use chromiumoxide::{Browser, BrowserConfig};
+use futures::StreamExt;
+use stealth_oxide::StealthConfig;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = StealthConfig::builder()
-        .platform(PlatformProfile::Linux)
-        .headful(true)
-        .mesa(true)
-        .build()?;
+    let browser_config = BrowserConfig::builder()
+        .build()
+        .map_err(anyhow::Error::msg)?;
+    let (mut browser, mut handler) = Browser::launch(browser_config).await?;
+    tokio::spawn(async move {
+        while let Some(event) = handler.next().await {
+            if let Err(error) = event {
+                eprintln!("chromiumoxide handler error: {error:?}");
+            }
+        }
+    });
 
-    let browser = StealthBrowser::launch_with(config).await?;
-    let page = browser.new_page("https://example.com").await?;
+    let page = browser.new_page("about:blank").await?;
+    let report = StealthConfig::recommended().apply(&page).await?;
+    page.goto("https://example.com").await?;
 
-    println!("{}", page.inner().content().await?);
+    println!("applied patches: {:?}", report.applied());
     browser.close().await?;
     Ok(())
 }
 ```
 
-Identity-affecting CDP commands are applied to `about:blank` before `new_page` navigates to the requested URL.
+`recommended()` selects the platform matching the Rust target. A preset
+describes the requested browser identity; it cannot transform the underlying
+operating system, GPU, fonts, voices, or platform-only browser features.
 
-## Platform presets
+## Granular control
 
-```rust
-use stealth_oxide::PlatformProfile;
-
-let linux = PlatformProfile::Linux.profile();
-let windows = PlatformProfile::Windows.profile();
-let macos = PlatformProfile::MacOS.profile();
-```
-
-A preset describes a browser identity; it does not change the operating system underneath Chromium. Use the Linux preset in Linux containers. Windows and macOS presets can still expose native Linux values in workers, fonts, graphics, or platform-only browser features when run on Linux.
-
-## Customize a profile
-
-Start with a coherent preset and override only the values needed by the application:
+Every patch can use an override, preserve Chromium's native value, or be
+disabled:
 
 ```rust
-use anyhow::Result;
-use stealth_oxide::{BrowserProfileBuilder, PlatformProfile};
+use stealth_oxide::{Patch, PatchState, StealthConfig};
 
-fn profile() -> Result<stealth_oxide::BrowserProfile> {
-    BrowserProfileBuilder::new(PlatformProfile::Linux.profile())
-        .name("linux-ca")
-        .locale("en-CA")
-        .timezone("America/Toronto")
-        .screen(2560, 1440)
-        .available_screen(2560, 1400)
-        .device_scale_factor(1.25)
-        .color_scheme("dark")
-        .reduced_motion("no-preference")
-        .touch(false, 0)
-        .build()
-}
+let config = StealthConfig::recommended()
+    .disable(Patch::Screen)
+    .use_native(Patch::Touch)
+    .timezone("America/Toronto")
+    .languages(["en-CA", "en"])
+    .locale("en-CA");
+
+assert_eq!(config.patch_state(Patch::Screen), PatchState::Disabled);
+assert_eq!(config.patch_state(Patch::Touch), PatchState::Native);
 ```
 
-The builder keeps the first navigator language synchronized when `locale` changes. Validation rejects invalid screen dimensions, non-positive scale factors, contradictory platform identity, mismatched locale/language values, and impossible touch settings.
+Available patches are:
 
-Pass a custom profile into the browser configuration:
+- `Identity`: user agent, navigator platform, languages, and UA Client Hints
+- `Locale`: Intl locale
+- `Timezone`: IANA timezone
+- `Screen`: screen dimensions and device scale factor
+- `MediaFeatures`: color scheme, reduced motion, forced colors, color gamut,
+  and monochrome depth
+- `Touch`: touch enablement and maximum touch points
+
+Start with no patches and opt in explicitly:
 
 ```rust
-let config = StealthConfig::builder()
-    .profile(profile()?)
-    .headful(true)
-    .mesa(true)
-    .build()?;
+use stealth_oxide::{Patch, StealthConfig};
+
+let config = StealthConfig::none()
+    .enable(Patch::Identity)
+    .enable(Patch::Locale)
+    .enable(Patch::Timezone);
 ```
 
-## Select CDP patch groups
-
-All supported patch groups are enabled by default. They can be selected explicitly:
+## Platform presets and typed values
 
 ```rust
-use stealth_oxide::{PatchSet, PlatformProfile, StealthConfig};
+use stealth_oxide::{
+    ColorGamut, ColorScheme, ForcedColors, PlatformProfile, ReducedMotion,
+    StealthConfig,
+};
 
-let patches = PatchSet::all()
-    .identity(true)
-    .locale_and_timezone(true)
-    .screen(true)
-    .device_environment(false);
-
-let config = StealthConfig::builder()
-    .platform(PlatformProfile::Linux)
-    .patches(patches)
-    .build()?;
-# Ok::<(), anyhow::Error>(())
+let config = StealthConfig::for_platform(PlatformProfile::Windows)
+    .screen_size(2560, 1440)
+    .device_scale_factor(1.25)
+    .color_scheme(ColorScheme::Dark)
+    .reduced_motion(ReducedMotion::NoPreference)
+    .forced_colors(ForcedColors::None)
+    .color_gamut(ColorGamut::Srgb)
+    .touch(false, 0);
 ```
 
-The `identity` group intentionally keeps the user agent, `Accept-Language`, navigator platform, and UA Client Hints together. Disabling individual values inside that group would make it easy to produce contradictory browser surfaces.
+Complete typed patch values can also be supplied with `identity_patch`,
+`locale_patch`, `timezone_patch`, `screen_patch`, `media_features_patch`, and
+`touch_patch`.
 
-Use `PatchSet::none()` when the caller wants an unmodified page and then opt into groups individually.
+## Consistency policies
 
-## Launch options
+Strict validation is the default. It rejects known contradictions before any
+CDP command runs:
 
 ```rust
-use stealth_oxide::LaunchOptions;
+use stealth_oxide::{ConsistencyPolicy, PlatformProfile, StealthConfig};
 
-let launch = LaunchOptions::default()
-    .headful(true)
-    .mesa(true)
-    .speech_dispatcher(false);
+let config = StealthConfig::for_platform(PlatformProfile::Linux)
+    .navigator_platform("Win32")
+    .consistency_policy(ConsistencyPolicy::Warn);
+
+let issues = config.validation_issues();
+assert!(!issues.is_empty());
 ```
 
-- `headful` launches a normal browser window. A display server is required in a container.
-- `mesa` selects Chromium's ANGLE-over-OpenGL path and enables GPU rasterization. The included container supplies Xvfb and Mesa.
-- `speech_dispatcher` enables Chromium's native Linux Speech Dispatcher integration. The service must already be installed and running. It is disabled by default because an eSpeak catalog does not match Windows or macOS profiles.
+- `Strict` rejects known contradictions before applying patches.
+- `Warn` applies valid CDP values and returns issues in `ApplyReport`.
+- `Permissive` applies the requested values and skips coherence checks. CDP
+  parameter requirements and Chromium errors still apply.
 
-Use the options independently or pass them together:
+Application is sequential, not transactional. If Chromium rejects a later
+patch, the error records which earlier patches completed successfully.
 
-```rust
-let config = StealthConfig::builder()
-    .platform(PlatformProfile::Linux)
-    .launch_options(launch)
-    .build()?;
+## Proxies
+
+Proxy configuration and credentials belong to the application and
+Chromiumoxide. `stealth-oxide` never receives or stores them.
+
+```rust,no_run
+use chromiumoxide::auth::Credentials;
+use chromiumoxide::{Browser, BrowserConfig};
+use futures::StreamExt;
+use stealth_oxide::StealthConfig;
+
+# async fn example() -> anyhow::Result<()> {
+let config = BrowserConfig::builder()
+    .arg(("proxy-server", "http://proxy.example:8080"))
+    .build()
+    .map_err(anyhow::Error::msg)?;
+let (mut browser, mut handler) = Browser::launch(config).await?;
+tokio::spawn(async move {
+    while let Some(event) = handler.next().await {
+        if let Err(error) = event {
+            eprintln!("chromiumoxide handler error: {error:?}");
+        }
+    }
+});
+
+let page = browser.new_page("about:blank").await?;
+page.authenticate(Credentials {
+    username: "username".into(),
+    password: "password".into(),
+})
+.await?;
+StealthConfig::recommended().apply(&page).await?;
+page.goto("https://example.com").await?;
+browser.close().await?;
+# Ok(())
+# }
 ```
 
-## Backward-compatible API
+The `url_probe` and `random_proxy_probe` examples contain example-local proxy
+parsing. Proxy addresses and credentials are not part of the library API.
 
-Existing callers can continue passing a profile directly:
+## Container development
 
-```rust
-use stealth_oxide::profiles::chrome_linux::chrome_linux;
-
-let browser = StealthBrowser::launch(chrome_linux()).await?;
-```
-
-This compatibility path reads the existing `STEALTH_OXIDE_HEADFUL`, `STEALTH_OXIDE_USE_MESA`, and `STEALTH_OXIDE_SPEECH_DISPATCHER` environment variables. New library integrations should prefer `StealthConfig` and `launch_with` because typed options are local to a browser instance instead of process-wide.
-
-## Testing
-
-### Probe URLs through proxies
-
-The `url_probe` example opens real Chromium pages and reports the requested URL, final URL, HTTP navigation status, title, load state, elapsed time, user agent, UA Client Hints platform, rendered DOM size, and a SHA-256 hash of visible body text as JSON. `contentBytes` is the UTF-8 byte size of the serialized DOM after page scripts run, not the compressed network-transfer size. `bodySha256` supports comparisons without printing potentially sensitive response content.
-
-Probe more than one URL directly:
-
-```bash
-cargo run --example url_probe -- \
-  --url https://example.com \
-  --url https://httpbin.org/headers \
-  --profile linux
-```
-
-Probe every URL through each supplied proxy:
-
-```bash
-cargo run --example url_probe -- \
-  --url https://example.com \
-  --url https://httpbin.org/ip \
-  --proxy http://127.0.0.1:8080 \
-  --proxy socks5://127.0.0.1:1080 \
-  --profile linux \
-  --timeout 60
-```
-
-Proxy files containing `host:port:username:password` on each line can be passed without placing credentials in the shell command:
-
-```bash
-cargo run --example url_probe -- \
-  --url https://httpbin.org/ip \
-  --proxy-file /path/to/proxies.txt \
-  --profile linux \
-  --timeout 60
-```
-
-Supplied proxies are identified as `proxy-1`, `proxy-2`, and so on in JSON output. Proxy addresses and credentials are not printed.
-
-To select one random entry from a proxy file and open one URL:
-
-```bash
-cargo run --example random_proxy_probe -- \
-  --url https://example.com \
-  --proxy-file /path/to/proxies.txt \
-  --headful \
-  --mesa \
-  --wait 30
-```
-
-The optional `--wait` value keeps the loaded page open for the given number of
-seconds before collecting the result. The result identifies the selection only
-as `proxy-N`, reports how many entries were available, and never prints the
-selected address or credentials.
-
-Chromiumoxide handles HTTP proxy authentication through CDP when credentials are included:
-
-```bash
-cargo run --example url_probe -- \
-  --url https://example.com \
-  --proxy http://username:password@proxy.example:8080
-```
-
-Credentials are removed from Chromium's `--proxy-server` argument and are not included in the JSON proxy label. Avoid putting secrets directly on a shared shell command line; construct `ProxyConfig::new(...).credentials(...)` in application code when credential exposure through process history is a concern.
-
-```rust
-use stealth_oxide::{PlatformProfile, ProxyConfig, StealthConfig};
-
-let proxy = ProxyConfig::new("http://proxy.example:8080")?
-    .credentials("username", "password");
-
-let config = StealthConfig::builder()
-    .platform(PlatformProfile::Linux)
-    .proxy(proxy)
-    .build()?;
-# Ok::<(), anyhow::Error>(())
-```
-
-In the included desktop container, add `--headful --mesa`:
-
-```bash
-docker compose run --rm stealth-oxide \
-  cargo run --example url_probe -- \
-  --url https://example.com \
-  --profile linux \
-  --headful \
-  --mesa
-```
-
-This probe confirms browser connectivity and reports observable navigation results. It does not prove that a third-party fraud or bot-management system classifies a session as human. Use it only with URLs and proxies you are authorized to test.
-
-### Test suite
-
-Run fast profile and parameter tests:
-
-```bash
-cargo test
-```
-
-Build and run the desktop container tests:
+The repository Docker environment supplies Chromium, Xvfb, Openbox, a taskbar,
+and Mesa llvmpipe for integration tests. These assets are excluded from the
+published crate archive.
 
 ```bash
 docker compose build
 docker compose run --rm stealth-oxide
 ```
 
-Real-browser integration tests are ignored by default because they require a working Chromium process and display environment. Run an individual test with `--ignored --nocapture` to inspect its browser-visible output.
+## Verification
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+cargo package
+```
+
+Real-browser integration tests are ignored by default because they require a
+working Chromium process and, for desktop tests, the container environment.
 
 ## Scope and limitations
 
-CDP overrides are target- and session-scoped. A value observed in a page is not automatically guaranteed to match dedicated workers, shared workers, service workers, out-of-process frames, or native platform services.
-
-The project validates known relationships and includes real-browser probes, but no configuration guarantees a particular classification by a third-party fraud or bot-management service. Only test services and properties you own or are authorized to assess.
+- Patches use CDP rather than page-world JavaScript overrides.
+- CDP commands are target- and session-scoped.
+- Applying a configuration to one page does not automatically cover workers,
+  popups, service workers, or new targets.
+- Native screen work area, physical GPU identity, fonts, voices, and platform
+  features can depend on the host environment.
+- Successful navigation does not establish a favorable classification by a
+  third-party fraud or bot-management service.
+- Only test sites and proxies you are authorized to use.

@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::time::timeout;
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 #[tokio::test]

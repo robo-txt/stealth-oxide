@@ -4,7 +4,8 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::time::{Instant, sleep};
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::BrowserSession as StealthBrowser;
 use stealth_oxide::profiles::BrowserProfile;
 use stealth_oxide::profiles::chrome_linux::chrome_linux;
 use stealth_oxide::profiles::chrome_macos::chrome_macos;
@@ -28,7 +29,7 @@ fn selected_profile() -> Result<BrowserProfile> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let profile = selected_profile()?;
-    println!("Profile: {}", profile.name);
+    println!("Profile: {}", profile.name());
     let browser = StealthBrowser::launch(profile).await?;
     let version = browser.version().await?;
     let page = browser

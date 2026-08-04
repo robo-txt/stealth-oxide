@@ -16,7 +16,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 use stealth_oxide::profiles::{NavigatorProfile, UserAgentClientHintsProfile};
 
@@ -115,7 +116,7 @@ async fn loopback_page() -> Result<String> {
 #[ignore = "requires a local Chromium process with working CDP sockets"]
 async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
     let profile = chrome_windows();
-    let worker_override = user_agent_override(&profile.navigator)?;
+    let worker_override = user_agent_override(profile.navigator())?;
     let page_url = loopback_page().await?;
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
         .await

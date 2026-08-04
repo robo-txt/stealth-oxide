@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::time::timeout;
 
-use stealth_oxide::StealthConfig;
-use stealth_oxide::browser::StealthBrowser;
+mod common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 #[tokio::test]
@@ -18,15 +18,12 @@ async fn native_fonts_and_speech_are_browser_visible() -> Result<()> {
         ),
         "set STEALTH_OXIDE_SPEECH_DISPATCHER=1 for this native experiment"
     );
-    let config = StealthConfig::builder()
-        .profile(chrome_windows())
-        .headful(true)
-        .mesa(true)
-        .speech_dispatcher(true)
-        .build()?;
-    let browser = timeout(Duration::from_secs(20), StealthBrowser::launch_with(config))
-        .await
-        .context("timed out while launching Chromium")??;
+    let browser = timeout(
+        Duration::from_secs(20),
+        StealthBrowser::launch(chrome_windows()),
+    )
+    .await
+    .context("timed out while launching Chromium")??;
     let page = timeout(
         Duration::from_secs(20),
         browser.new_page("data:text/html,<title>font and speech probe</title>"),

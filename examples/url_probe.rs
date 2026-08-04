@@ -3,13 +3,15 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use serde_json::Value;
-use stealth_oxide::{PlatformProfile, ProxyConfig, StealthBrowser, StealthConfig};
+use stealth_oxide::PlatformProfile;
 use tokio::time::timeout;
 
-#[derive(Debug)]
+mod common;
+use common::{BrowserSession, ExampleLaunch, ExampleProxy};
+
 struct Arguments {
     urls: Vec<String>,
-    proxies: Vec<ProxyConfig>,
+    proxies: Vec<ExampleProxy>,
     platform: PlatformProfile,
     headful: bool,
     mesa: bool,
@@ -37,7 +39,7 @@ struct ProbeResult {
 #[tokio::main]
 async fn main() -> Result<()> {
     let arguments = parse_arguments()?;
-    let proxies: Vec<Option<ProxyConfig>> = if arguments.proxies.is_empty() {
+    let proxies: Vec<Option<ExampleProxy>> = if arguments.proxies.is_empty() {
         vec![None]
     } else {
         arguments.proxies.into_iter().map(Some).collect()
@@ -45,21 +47,20 @@ async fn main() -> Result<()> {
     let mut results = Vec::new();
 
     for (proxy_index, proxy) in proxies.into_iter().enumerate() {
-        let mut builder = StealthConfig::builder()
-            .platform(arguments.platform)
-            .headful(arguments.headful)
-            .mesa(arguments.mesa);
         let proxy_label = proxy.as_ref().map_or_else(
             || "direct".to_string(),
             |_| format!("proxy-{}", proxy_index + 1),
         );
-        if let Some(proxy) = proxy {
-            builder = builder.proxy(proxy);
-        }
-
         let browser = match timeout(
             arguments.timeout,
-            StealthBrowser::launch_with(builder.build()?),
+            BrowserSession::launch_with(
+                arguments.platform.profile(),
+                ExampleLaunch {
+                    headful: arguments.headful,
+                    mesa: arguments.mesa,
+                    proxy,
+                },
+            ),
         )
         .await
         {
@@ -101,7 +102,7 @@ async fn main() -> Result<()> {
 }
 
 async fn probe_url(
-    browser: &StealthBrowser,
+    browser: &BrowserSession,
     proxy: &str,
     url: &str,
     deadline: Duration,
@@ -232,7 +233,7 @@ fn parse_arguments() -> Result<Arguments> {
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--url" => urls.push(arguments.next().context("--url requires a value")?),
-            "--proxy" => proxies.push(ProxyConfig::parse(
+            "--proxy" => proxies.push(ExampleProxy::parse(
                 &arguments.next().context("--proxy requires a value")?,
             )?),
             "--proxy-file" => {
@@ -244,7 +245,7 @@ fn parse_arguments() -> Result<Arguments> {
                     if line.is_empty() || line.starts_with('#') {
                         continue;
                     }
-                    proxies.push(ProxyConfig::parse(line).with_context(|| {
+                    proxies.push(ExampleProxy::parse(line).with_context(|| {
                         format!("invalid proxy on line {} of {path}", index + 1)
                     })?);
                 }
