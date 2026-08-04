@@ -895,9 +895,11 @@ dependencies = [
  "anyhow",
  "chromiumoxide",
  "futures",
+ "rand",
  "serde",
  "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]
