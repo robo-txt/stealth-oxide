@@ -8,8 +8,8 @@ pub struct BrowserProfile {
     pub name: String,
     pub navigator: NavigatorProfile,
     pub screen: ScreenProfile,
+    pub device_environment: DeviceEnvironmentProfile,
     pub locale: LocaleProfile,
-    pub webgl: Option<WebGLProfile>,
 }
 
 #[derive(Debug, Clone)]
@@ -17,8 +17,6 @@ pub struct NavigatorProfile {
     pub user_agent: String,
     pub platform: String,
     pub languages: Vec<String>,
-    pub hardware_concurrency: Option<u32>,
-    pub device_memory: Option<u32>,
     //pub vendor: String,
     pub client_hints: Option<UserAgentClientHintsProfile>,
 }
@@ -48,13 +46,17 @@ pub struct ScreenProfile {
 }
 
 #[derive(Debug, Clone)]
-pub struct LocaleProfile {
-    pub locale: String,
-    pub timezone: String,
+pub struct DeviceEnvironmentProfile {
+    pub reduced_motion: String,
+    pub forced_colors: String,
+    pub color_gamut: String,
+    pub monochrome: String,
+    pub touch_enabled: bool,
+    pub max_touch_points: u32,
 }
 
 #[derive(Debug, Clone)]
-pub struct WebGLProfile {
-    pub vendor: String,
-    pub renderer: String,
+pub struct LocaleProfile {
+    pub locale: String,
+    pub timezone: String,
 }

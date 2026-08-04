@@ -8,8 +8,6 @@ pub fn chrome_windows() -> BrowserProfile {
                 .to_string(),
             platform: "Win32".to_string(),
             languages: vec!["en-US".to_string(), "en".to_string()],
-            hardware_concurrency: Some(8),
-            device_memory: Some(8),
             //vendor:"Google Inc.".to_string(),
             client_hints: Some(UserAgentClientHintsProfile{
                 brands: vec![
@@ -53,15 +51,17 @@ pub fn chrome_windows() -> BrowserProfile {
                 height: 1080,
                 device_scale_factor: 1.0,
             },
+            device_environment: DeviceEnvironmentProfile {
+                reduced_motion: "no-preference".to_string(),
+                forced_colors: "none".to_string(),
+                color_gamut: "srgb".to_string(),
+                monochrome: "0".to_string(),
+                touch_enabled: false,
+                max_touch_points: 0,
+            },
             locale: LocaleProfile {
                 locale: "en-US".to_string(),
                 timezone: "America/New_York".to_string(),
             },
-            webgl: Some(WebGLProfile{
-                vendor: "Google Inc. (NVIDIA)".to_string(),
-                renderer:
-                    "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)"
-                        .to_string(),
-        }),
     }
 }

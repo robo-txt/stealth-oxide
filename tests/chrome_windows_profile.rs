@@ -117,3 +117,16 @@ fn chrome_windows_locale_is_consistent_with_navigator_languages() {
     assert!(!profile.locale.locale.contains(','));
     assert!(!profile.locale.locale.contains("q="));
 }
+
+#[test]
+fn chrome_windows_device_environment_is_desktop_consistent() {
+    let profile = chrome_windows();
+    let environment = profile.device_environment;
+
+    assert_eq!(environment.reduced_motion, "no-preference");
+    assert_eq!(environment.forced_colors, "none");
+    assert_eq!(environment.color_gamut, "srgb");
+    assert_eq!(environment.monochrome, "0");
+    assert!(!environment.touch_enabled);
+    assert_eq!(environment.max_touch_points, 0);
+}

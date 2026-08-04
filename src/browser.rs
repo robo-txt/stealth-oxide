@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chromiumoxide::cdp::browser_protocol::system_info::{GetInfoParams, GetInfoReturns};
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 
@@ -50,6 +51,10 @@ impl StealthBrowser {
 
     pub async fn version(&self) -> Result<String> {
         Ok(self.browser.version().await?.product)
+    }
+
+    pub async fn system_info(&self) -> Result<GetInfoReturns> {
+        Ok(self.browser.execute(GetInfoParams {}).await?.result)
     }
 
     pub async fn close(mut self) -> Result<()> {
