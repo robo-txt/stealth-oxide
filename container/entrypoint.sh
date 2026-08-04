@@ -2,8 +2,29 @@
 set -eu
 
 # Refresh the per-user cache so fonts mounted by Kubernetes or Compose after
-# image construction are visible to Chromium.
+# image construction are visible to Chromium. Isolation is opt-in and refuses
+# to run without actual font binaries, avoiding a glyph-less browser profile.
+if [ "${STEALTH_OXIDE_FONT_ISOLATION:-0}" = "1" ] || [ "${STEALTH_OXIDE_FONT_ISOLATION:-0}" = "true" ]; then
+    font_count=$(find /usr/local/share/fonts/windows -maxdepth 1 -type f \( \
+        -name '*.ttf' -o -name '*.ttc' -o -name '*.otf' \
+    \) | wc -l)
+    if [ "${font_count}" -eq 0 ]; then
+        echo "Font isolation requested, but no Windows font binaries are mounted" >&2
+        exit 1
+    fi
+    export FONTCONFIG_FILE=/etc/stealth-oxide/windows-fonts.conf
+fi
 fc-cache -f >/dev/null
+
+# Chromium dynamically discovers native Linux voices through Speech Dispatcher.
+# Keep this experimental surface opt-in: eSpeak's large catalog is itself a
+# strong Linux fingerprint and is not coherent with the Windows profile.
+if [ "${STEALTH_OXIDE_SPEECH_DISPATCHER:-0}" = "1" ] || [ "${STEALTH_OXIDE_SPEECH_DISPATCHER:-0}" = "true" ]; then
+    mkdir -p /tmp/stealth-runtime
+    chmod 0700 /tmp/stealth-runtime
+    export XDG_RUNTIME_DIR=/tmp/stealth-runtime
+    speech-dispatcher -d >/tmp/stealth-oxide-speech-dispatcher.log 2>&1 || true
+fi
 
 Xvfb "${DISPLAY}" -screen 0 1920x1080x24 -ac +extension GLX +render -noreset \
     >/tmp/stealth-oxide-xvfb.log 2>&1 &

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chromiumoxide::Page;
 
+use crate::config::PatchSet;
 use crate::patches::{device_environment, navigator, network, screen, timezone_intl};
 use crate::profiles::BrowserProfile;
 
@@ -14,11 +15,27 @@ impl StealthPage {
     }
 
     pub async fn apply_profile(&self, profile: &BrowserProfile) -> Result<()> {
-        timezone_intl::apply(self, &profile.locale).await?;
-        network::apply(self, &profile.navigator).await?;
-        navigator::apply(self, &profile.navigator).await?;
-        screen::apply(self, &profile.screen).await?;
-        device_environment::apply(self, &profile.device_environment).await?;
+        self.apply_profile_with(profile, &PatchSet::default()).await
+    }
+
+    pub async fn apply_profile_with(
+        &self,
+        profile: &BrowserProfile,
+        patches: &PatchSet,
+    ) -> Result<()> {
+        if patches.locale_and_timezone {
+            timezone_intl::apply(self, &profile.locale).await?;
+        }
+        if patches.identity {
+            network::apply(self, &profile.navigator).await?;
+            navigator::apply(self, &profile.navigator).await?;
+        }
+        if patches.screen {
+            screen::apply(self, &profile.screen).await?;
+        }
+        if patches.device_environment {
+            device_environment::apply(self, &profile.device_environment).await?;
+        }
 
         Ok(())
     }

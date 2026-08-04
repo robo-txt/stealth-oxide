@@ -5,13 +5,31 @@ use serde_json::Value;
 use tokio::time::{Instant, sleep};
 
 use stealth_oxide::browser::StealthBrowser;
+use stealth_oxide::profiles::BrowserProfile;
+use stealth_oxide::profiles::chrome_linux::chrome_linux;
+use stealth_oxide::profiles::chrome_macos::chrome_macos;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 const CREEPJS_URL: &str = "https://abrahamjuliot.github.io/creepjs/";
 
+fn selected_profile() -> Result<BrowserProfile> {
+    match std::env::var("STEALTH_OXIDE_PROFILE") {
+        Ok(value) => match value.as_str() {
+            "linux" => Ok(chrome_linux()),
+            "macos" => Ok(chrome_macos()),
+            "windows" => Ok(chrome_windows()),
+            _ => bail!("unknown STEALTH_OXIDE_PROFILE: {value}"),
+        },
+        Err(std::env::VarError::NotPresent) => Ok(chrome_windows()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let browser = StealthBrowser::launch(chrome_windows()).await?;
+    let profile = selected_profile()?;
+    println!("Profile: {}", profile.name);
+    let browser = StealthBrowser::launch(profile).await?;
     let version = browser.version().await?;
     let page = browser
         .new_page(CREEPJS_URL)

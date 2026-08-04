@@ -20,6 +20,9 @@ RUN apt-get update \
         mesa-vulkan-drivers \
         openbox \
         pkg-config \
+        espeak-ng \
+        speech-dispatcher \
+        speech-dispatcher-espeak-ng \
         tint2 \
         x11-utils \
         xvfb \
@@ -37,12 +40,14 @@ RUN useradd --create-home --shell /bin/bash stealth \
     && mkdir -p \
         /etc/stealth-oxide \
         /home/stealth/.cache/fontconfig \
+        /home/stealth/.cache/fontconfig-windows \
         /usr/local/share/fonts/windows \
         /workspace
 
 COPY container/fonts/ /usr/local/share/fonts/windows/
 COPY container/entrypoint.sh /usr/local/bin/stealth-oxide-entrypoint
 COPY container/tint2rc /etc/stealth-oxide/tint2rc
+COPY container/windows-fonts.conf /etc/stealth-oxide/windows-fonts.conf
 RUN chmod 0755 /usr/local/bin/stealth-oxide-entrypoint \
     && fc-cache -f \
     && chown -R stealth:stealth /workspace /home/stealth

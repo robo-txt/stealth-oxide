@@ -1,13 +1,16 @@
 use anyhow::Result;
 
-use stealth_oxide::browser::StealthBrowser;
-use stealth_oxide::profiles::chrome_windows::chrome_windows;
+use stealth_oxide::{PlatformProfile, StealthBrowser, StealthConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let profile = chrome_windows();
+    let config = StealthConfig::builder()
+        .platform(PlatformProfile::Linux)
+        .headful(true)
+        .mesa(true)
+        .build()?;
 
-    let browser = StealthBrowser::launch(profile).await?;
+    let browser = StealthBrowser::launch_with(config).await?;
 
     let page = browser.new_page("https://httpbin.org/headers").await?;
 
