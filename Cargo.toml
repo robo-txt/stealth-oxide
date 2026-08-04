@@ -9,3 +9,6 @@ chromiumoxide = "0.9.1"
 futures = "0.3.32"
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["full"] }
+
+[dev-dependencies]
+serde = { version = "1.0.228", features = ["derive"] }

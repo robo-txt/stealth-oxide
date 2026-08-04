@@ -1,8 +1,9 @@
 panel_monitor = all
 panel_position = bottom center horizontal
 panel_size = 100% 40
-panel_layer = normal
-panel_dock = 1
+panel_layer = top
+panel_dock = 0
+panel_shrink = 0
 strut_policy = follow_size
 wm_menu = 0
 panel_items = T

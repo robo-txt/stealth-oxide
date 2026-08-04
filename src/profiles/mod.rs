@@ -42,11 +42,14 @@ pub struct BrandVersion {
 pub struct ScreenProfile {
     pub width: u32,
     pub height: u32,
+    pub available_width: u32,
+    pub available_height: u32,
     pub device_scale_factor: f64,
 }
 
 #[derive(Debug, Clone)]
 pub struct DeviceEnvironmentProfile {
+    pub color_scheme: String,
     pub reduced_motion: String,
     pub forced_colors: String,
     pub color_gamut: String,

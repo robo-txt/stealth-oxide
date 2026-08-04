@@ -97,6 +97,7 @@ async fn device_media_and_touch_match_the_desktop_profile() -> Result<()> {
         .context("timed out while closing Chromium")??;
 
     for realm in ["top", "iframe"] {
+        assert_eq!(observed[realm]["colorScheme"], expected.color_scheme);
         assert_eq!(observed[realm]["reducedMotion"], expected.reduced_motion);
         assert_eq!(observed[realm]["forcedColors"], expected.forced_colors);
         assert_eq!(observed[realm]["colorGamut"], expected.color_gamut);
@@ -106,6 +107,7 @@ async fn device_media_and_touch_match_the_desktop_profile() -> Result<()> {
             Some(u64::from(expected.max_touch_points))
         );
         assert_eq!(observed[realm]["hasTouchEvent"], expected.touch_enabled);
+        assert_eq!(observed[realm]["css"]["colorScheme"], expected.color_scheme);
         assert_eq!(
             observed[realm]["css"]["reducedMotion"],
             expected.reduced_motion

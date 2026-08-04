@@ -22,6 +22,7 @@ pub async fn apply(page: &StealthPage, profile: &DeviceEnvironmentProfile) -> Re
 fn media_params(profile: &DeviceEnvironmentProfile) -> SetEmulatedMediaParams {
     SetEmulatedMediaParams::builder()
         .features([
+            MediaFeature::new("prefers-color-scheme", &profile.color_scheme),
             MediaFeature::new("prefers-reduced-motion", &profile.reduced_motion),
             MediaFeature::new("forced-colors", &profile.forced_colors),
             MediaFeature::new("color-gamut", &profile.color_gamut),
@@ -44,6 +45,7 @@ mod tests {
 
     fn profile() -> DeviceEnvironmentProfile {
         DeviceEnvironmentProfile {
+            color_scheme: "dark".to_string(),
             reduced_motion: "no-preference".to_string(),
             forced_colors: "none".to_string(),
             color_gamut: "srgb".to_string(),
@@ -58,6 +60,7 @@ mod tests {
         let params = media_params(&profile());
         let features = params.features.expect("media features should be set");
 
+        assert!(features.contains(&MediaFeature::new("prefers-color-scheme", "dark")));
         assert!(features.contains(&MediaFeature::new(
             "prefers-reduced-motion",
             "no-preference"
