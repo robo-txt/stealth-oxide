@@ -3,6 +3,11 @@ name: CI
 on:
   push:
   pull_request:
+  merge_group:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -18,7 +23,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-targets
+      - run: cargo test --all-targets --all-features
       - run: cargo test --doc
       - run: cargo doc --no-deps --all-features
         env:
@@ -39,3 +44,22 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker compose build
       - run: docker compose run --rm stealth-oxide
+
+  required-ci:
+    name: Required CI
+    if: ${{ always() }}
+    needs:
+      - quality
+      - msrv
+      - chromium-integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every CI job passed
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          MSRV_RESULT: ${{ needs.msrv.result }}
+          CHROMIUM_INTEGRATION_RESULT: ${{ needs.chromium-integration.result }}
+        run: |
+          test "$QUALITY_RESULT" = success
+          test "$MSRV_RESULT" = success
+          test "$CHROMIUM_INTEGRATION_RESULT" = success

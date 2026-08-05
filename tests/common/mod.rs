@@ -74,6 +74,11 @@ impl TestPage {
     pub fn inner(&self) -> &Page {
         &self.0
     }
+
+    pub async fn goto(&self, url: &str) -> chromiumoxide::error::Result<()> {
+        self.0.goto(url).await?;
+        Ok(())
+    }
 }
 
 fn env_enabled(name: &str) -> bool {

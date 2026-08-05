@@ -6,6 +6,8 @@ mod error;
 mod patches;
 /// Browser profile types, builders, and built-in platform presets.
 pub mod profiles;
+#[cfg(feature = "seeding")]
+mod seeding;
 mod validation;
 
 use chromiumoxide::Page;
@@ -18,6 +20,10 @@ pub use error::{Error, Result, ValidationErrors, ValidationIssue};
 pub use profiles::{
     BrowserProfile, BrowserProfileBuilder, ColorGamut, ColorScheme, ForcedColors, IdentityConfig,
     MediaFeaturesConfig, ReducedMotion, ScreenConfig, TouchConfig,
+};
+#[cfg(feature = "seeding")]
+pub use seeding::{
+    CookieSeed, IndexedDbSeed, OriginSeed, ProfileSeed, SeedReport, apply_profile_seeds,
 };
 pub use validation::validate_profile;
 

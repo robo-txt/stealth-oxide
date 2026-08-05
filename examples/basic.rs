@@ -1,14 +1,12 @@
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::{PlatformProfile, StealthConfig};
+use stealth_oxide::StealthConfig;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let profile = PlatformProfile::Linux.profile();
     let browser_config = BrowserConfig::builder()
         .with_head()
-        .arg(("user-agent", profile.navigator().user_agent.as_str()))
         .build()
         .map_err(anyhow::Error::msg)?;
 
@@ -22,9 +20,10 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    StealthConfig::from_profile(profile).apply(&page).await?;
+    let report = StealthConfig::recommended().apply(&page).await?;
     page.goto("https://example.com").await?;
 
+    println!("applied patches: {:?}", report.applied());
     println!("{}", page.content().await?);
     browser.close().await?;
     Ok(())

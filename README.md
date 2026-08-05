@@ -24,6 +24,17 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 Rust 1.86 or newer is required by the resolved Chromiumoxide dependency graph.
 
+Profile seeding is optional and disabled by default. Enable it explicitly only
+when an application needs reproducible test cookies or origin storage:
+
+```toml
+[dependencies]
+stealth-oxide = {
+    git = "https://github.com/robo-txt/stealth-oxide.git",
+    features = ["seeding"]
+}
+```
+
 ## Recommended configuration
 
 Create an `about:blank` page, apply the configuration, and navigate only after
@@ -189,6 +200,50 @@ browser.close().await?;
 
 The `url_probe` and `random_proxy_probe` examples contain example-local proxy
 parsing. Proxy addresses and credentials are not part of the library API.
+
+## Examples
+
+The public examples focus on using the crate as a dependency:
+
+```bash
+cargo run --example basic
+cargo run --example selective_patches
+cargo run --features seeding --example seeded_profile -- --url https://example.com
+```
+
+`basic` launches Chromium, applies the recommended configuration before
+navigation, and reports the applied patches. `selective_patches` demonstrates
+Playwright-Stealth-style opt-in, native, and override controls without launching
+a browser. The URL and proxy probes are repository utilities rather than
+library APIs.
+
+`seeded_profile` creates a fresh, non-personal Chromium profile and installs
+repeatable test cookies, local storage, and IndexedDB records. It accepts any
+number of JSON seed documents. See
+[`examples/seeds/README.md`](examples/seeds/README.md).
+
+Library users must also opt in at runtime by calling `apply_profile_seeds`:
+
+```rust,no_run
+use stealth_oxide::{CookieSeed, ProfileSeed, apply_profile_seeds};
+
+# async fn seed(page: &chromiumoxide::Page) -> stealth_oxide::Result<()> {
+let seeds = [ProfileSeed::new().cookie(
+    CookieSeed::new("test-session", "value", "https://example.com/")
+        .secure(true)
+        .http_only(true),
+)];
+
+apply_profile_seeds(page, &seeds).await?;
+# Ok(())
+# }
+```
+
+Omit the `seeding` feature—or simply do not call `apply_profile_seeds`—to seed
+nothing. Passing an empty slice is also a no-op.
+
+CreepJS probes live under `tests/` as ignored browser diagnostics. See
+[`tests/README.md`](tests/README.md) for the container commands.
 
 ## Container development
 

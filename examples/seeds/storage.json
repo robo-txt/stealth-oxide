@@ -1,0 +1,31 @@
+{
+  "cookies": [
+    {
+      "name": "my_application_test_session",
+      "value": "returning-test-browser",
+      "url": "https://example.com/",
+      "path": "/",
+      "secure": true,
+      "httpOnly": true
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://example.com",
+      "localStorage": {
+        "theme": "dark",
+        "onboarding": "complete"
+      },
+      "indexedDb": [
+        {
+          "database": "my_application_test",
+          "store": "state",
+          "key": "last-session",
+          "value": {
+            "completed": true
+          }
+        }
+      ]
+    }
+  ]
+}

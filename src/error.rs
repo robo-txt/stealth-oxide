@@ -85,6 +85,19 @@ pub enum ValidationIssue {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A profile seed document contains an invalid value.
+    #[cfg(feature = "seeding")]
+    #[error("invalid profile seed: {message}")]
+    InvalidSeed {
+        /// Description of the invalid seed value.
+        message: String,
+    },
+
+    /// A profile seed could not be decoded from JSON.
+    #[cfg(feature = "seeding")]
+    #[error("invalid profile seed JSON: {0}")]
+    SeedJson(#[from] serde_json::Error),
+
     /// Strict validation rejected one or more known contradictions.
     #[error("stealth configuration failed validation: {issues}")]
     Validation {
@@ -125,6 +138,13 @@ pub enum Error {
 }
 
 impl Error {
+    #[cfg(feature = "seeding")]
+    pub(crate) fn invalid_seed(message: impl Into<String>) -> Self {
+        Self::InvalidSeed {
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn invalid_parameters(patch: &'static str, message: impl Into<String>) -> Self {
         Self::InvalidPatchParameters {
             patch,
