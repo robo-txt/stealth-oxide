@@ -58,7 +58,9 @@ async fn main() -> Result<()> {
                 ExampleLaunch {
                     headful: arguments.headful,
                     mesa: arguments.mesa,
+                    native: false,
                     proxy,
+                    user_data_dir: None,
                 },
             ),
         )

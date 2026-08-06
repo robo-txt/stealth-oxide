@@ -3,6 +3,8 @@
 
 mod config;
 mod error;
+#[cfg(feature = "interceptor")]
+pub mod interceptor;
 mod patches;
 /// Browser profile types, builders, and built-in platform presets.
 pub mod profiles;

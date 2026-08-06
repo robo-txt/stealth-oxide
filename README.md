@@ -201,6 +201,16 @@ browser.close().await?;
 The `url_probe` and `random_proxy_probe` examples contain example-local proxy
 parsing. Proxy addresses and credentials are not part of the library API.
 
+Retries, reloads, and profile lifecycle also remain application concerns.
+`stealth-oxide` never automatically revisits a URL after a blocked response.
+The repository-only `profile_continuity` diagnostic defaults to one visit and
+supports explicit `--reopen` and conditional `--reopen-on-403` controls. Its
+`preserve`, `clear-selected`, and `fresh-profile` modes are test harness
+operations, not library behavior. An optional `--network-check-url` control
+compares the returned network identity before and after each visit and across
+reopened processes. The report contains equality booleans only; it never emits
+the identity value.
+
 ## Examples
 
 The public examples focus on using the crate as a dependency:
@@ -225,9 +235,10 @@ number of JSON seed documents. See
 Library users must also opt in at runtime by calling `apply_profile_seeds`:
 
 ```rust,no_run
+# #[cfg(feature = "seeding")]
+# async fn seed(page: &chromiumoxide::Page) -> stealth_oxide::Result<()> {
 use stealth_oxide::{CookieSeed, ProfileSeed, apply_profile_seeds};
 
-# async fn seed(page: &chromiumoxide::Page) -> stealth_oxide::Result<()> {
 let seeds = [ProfileSeed::new().cookie(
     CookieSeed::new("test-session", "value", "https://example.com/")
         .secure(true)

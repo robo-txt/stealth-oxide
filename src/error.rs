@@ -85,6 +85,14 @@ pub enum ValidationIssue {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A network-interceptor header policy contains an unsafe or invalid value.
+    #[cfg(feature = "interceptor")]
+    #[error("invalid interceptor header policy: {message}")]
+    InvalidInterceptorHeader {
+        /// Description of the rejected header mutation.
+        message: String,
+    },
+
     /// A profile seed document contains an invalid value.
     #[cfg(feature = "seeding")]
     #[error("invalid profile seed: {message}")]
@@ -138,6 +146,13 @@ pub enum Error {
 }
 
 impl Error {
+    #[cfg(feature = "interceptor")]
+    pub(crate) fn invalid_interceptor_header(message: impl Into<String>) -> Self {
+        Self::InvalidInterceptorHeader {
+            message: message.into(),
+        }
+    }
+
     #[cfg(feature = "seeding")]
     pub(crate) fn invalid_seed(message: impl Into<String>) -> Self {
         Self::InvalidSeed {

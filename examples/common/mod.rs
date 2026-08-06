@@ -71,13 +71,16 @@ impl ExampleProxy {
 pub struct ExampleLaunch {
     pub headful: bool,
     pub mesa: bool,
+    pub native: bool,
     pub proxy: Option<ExampleProxy>,
+    pub user_data_dir: Option<std::path::PathBuf>,
 }
 
 pub struct BrowserSession {
     browser: Browser,
-    stealth: StealthConfig,
+    stealth: Option<StealthConfig>,
     proxy_credentials: Option<Credentials>,
+    _temporary_user_data_dir: Option<tempfile::TempDir>,
 }
 
 impl BrowserSession {
@@ -86,9 +89,25 @@ impl BrowserSession {
     }
 
     pub async fn launch_with(profile: BrowserProfile, launch: ExampleLaunch) -> Result<Self> {
-        let mut builder = BrowserConfig::builder()
-            .hide()
-            .arg(("user-agent", profile.navigator().user_agent.as_str()));
+        let temporary_user_data_dir = if launch.user_data_dir.is_some() {
+            None
+        } else {
+            Some(
+                tempfile::Builder::new()
+                    .prefix("stealth-oxide-")
+                    .tempdir()?,
+            )
+        };
+        let user_data_dir = launch.user_data_dir.as_deref().unwrap_or_else(|| {
+            temporary_user_data_dir
+                .as_ref()
+                .expect("temporary profile must exist")
+                .path()
+        });
+        let mut builder = BrowserConfig::builder().hide().user_data_dir(user_data_dir);
+        if !launch.native {
+            builder = builder.arg(("user-agent", profile.navigator().user_agent.as_str()));
+        }
         if launch.headful {
             builder = builder.with_head();
         }
@@ -113,10 +132,12 @@ impl BrowserSession {
             }
         });
 
-        let stealth = if env_enabled("STEALTH_OXIDE_USE_NATIVE_SCREEN") {
-            StealthConfig::from_profile(profile).use_native(Patch::Screen)
+        let stealth = if launch.native {
+            None
+        } else if env_enabled("STEALTH_OXIDE_USE_NATIVE_SCREEN") {
+            Some(StealthConfig::from_profile(profile).use_native(Patch::Screen))
         } else {
-            StealthConfig::from_profile(profile)
+            Some(StealthConfig::from_profile(profile))
         };
         let proxy_credentials = launch.proxy.and_then(|proxy| proxy.credentials());
 
@@ -124,16 +145,24 @@ impl BrowserSession {
             browser,
             stealth,
             proxy_credentials,
+            _temporary_user_data_dir: temporary_user_data_dir,
         })
     }
 
     pub async fn new_page(&self, url: &str) -> Result<ExamplePage> {
+        let page = self.new_blank_page().await?;
+        page.goto(url).await?;
+        Ok(page)
+    }
+
+    pub async fn new_blank_page(&self) -> Result<ExamplePage> {
         let page = self.browser.new_page("about:blank").await?;
         if let Some(credentials) = &self.proxy_credentials {
             page.authenticate(credentials.clone()).await?;
         }
-        self.stealth.apply(&page).await?;
-        page.goto(url).await?;
+        if let Some(stealth) = &self.stealth {
+            stealth.apply(&page).await?;
+        }
         Ok(ExamplePage(page))
     }
 
@@ -147,6 +176,7 @@ impl BrowserSession {
 
     pub async fn close(mut self) -> Result<()> {
         self.browser.close().await?;
+        self.browser.wait().await?;
         Ok(())
     }
 }
