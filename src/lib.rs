@@ -2,14 +2,22 @@
 #![warn(missing_docs)]
 
 mod config;
+/// Read-only environment observations and consistency checks.
+pub mod environment;
 mod error;
 #[cfg(feature = "interceptor")]
 pub mod interceptor;
+/// Typed categories for observed Chromium network failures.
+pub mod network;
 mod patches;
 /// Browser profile types, builders, and built-in platform presets.
 pub mod profiles;
+/// Shared privacy and diagnostic redaction helpers.
+pub mod redaction;
 #[cfg(feature = "seeding")]
 mod seeding;
+/// Read-only frame and target topology classification helpers.
+pub mod topology;
 mod validation;
 
 use chromiumoxide::Page;
@@ -18,7 +26,14 @@ pub use config::{
     ApplyReport, ConsistencyPolicy, Patch, PatchMode, PatchPlan, PatchState, PlatformProfile,
     StealthConfig,
 };
+pub use environment::{
+    Finding, FindingSeverity, Observation, check_device_memory, compare_page_worker,
+    compare_voice_language, valid_device_memory_bucket,
+};
 pub use error::{Error, Result, ValidationErrors, ValidationIssue};
+pub use network::{
+    FailureCategory, classify_failure, increment_failure_count, sanitize_error_name,
+};
 pub use profiles::{
     BrowserProfile, BrowserProfileBuilder, ColorGamut, ColorScheme, ForcedColors, IdentityConfig,
     MediaFeaturesConfig, ReducedMotion, ScreenConfig, TouchConfig,
@@ -27,6 +42,7 @@ pub use profiles::{
 pub use seeding::{
     CookieSeed, IndexedDbSeed, OriginSeed, ProfileSeed, SeedReport, apply_profile_seeds,
 };
+pub use topology::{Coverage, ResourceScope, classify_resource, sanitize_initiator_origin};
 pub use validation::validate_profile;
 
 impl StealthConfig {

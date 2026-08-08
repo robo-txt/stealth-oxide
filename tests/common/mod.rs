@@ -27,6 +27,9 @@ impl TestBrowser {
                 .arg("ignore-gpu-blocklist")
                 .arg("enable-gpu-rasterization");
         }
+        if env_enabled("STEALTH_OXIDE_DOWNLINK_MAX") {
+            builder = builder.arg("enable-network-information-downlink-max");
+        }
 
         let config = builder.build().map_err(anyhow::Error::msg)?;
         let (browser, mut handler) = Browser::launch(config).await?;

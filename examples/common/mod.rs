@@ -74,6 +74,8 @@ pub struct ExampleLaunch {
     pub native: bool,
     pub proxy: Option<ExampleProxy>,
     pub user_data_dir: Option<std::path::PathBuf>,
+    /// Opt-in Chromium feature gate for Network Information `downlinkMax`.
+    pub network_information_downlink_max: bool,
 }
 
 pub struct BrowserSession {
@@ -117,6 +119,9 @@ impl BrowserSession {
                 .arg(("use-angle", "gl"))
                 .arg("ignore-gpu-blocklist")
                 .arg("enable-gpu-rasterization");
+        }
+        if launch.network_information_downlink_max {
+            builder = builder.arg("enable-network-information-downlink-max");
         }
         if let Some(proxy) = &launch.proxy {
             builder = builder.arg(("proxy-server", proxy.server.as_str()));

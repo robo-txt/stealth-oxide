@@ -84,6 +84,49 @@ fn validate_identity(identity: &NavigatorProfile, issues: &mut Vec<ValidationIss
     }
 
     validate_brands(identity, hints, issues);
+    validate_platform_metadata(hints, issues);
+}
+
+fn validate_platform_metadata(
+    hints: &crate::profiles::UserAgentClientHintsProfile,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let is_windows = hints.platform == "Windows";
+    let is_x86_32 = hints.architecture == "x86" && hints.bitness == "32";
+    if hints.wow64 == Some(true) && !(is_windows && is_x86_32) {
+        issues.push(ValidationIssue::InvalidWow64);
+    }
+    if !matches!(hints.architecture.as_str(), "x86" | "arm" | "arm64")
+        || !matches!(hints.bitness.as_str(), "32" | "64")
+    {
+        issues.push(ValidationIssue::InvalidArchitectureBitness);
+    }
+    if !hints.mobile && !hints.model.is_empty() {
+        issues.push(ValidationIssue::MobileMetadataMismatch);
+    }
+    if let Some(form_factors) = &hints.form_factors {
+        let has_mobile_factor = form_factors
+            .iter()
+            .any(|factor| matches!(factor.as_str(), "Mobile" | "Tablet"));
+        let has_desktop_factor = form_factors.iter().any(|factor| factor == "Desktop");
+        if hints.mobile != has_mobile_factor || (!hints.mobile && !has_desktop_factor) {
+            issues.push(ValidationIssue::MobileMetadataMismatch);
+        }
+    }
+    let version_valid = match hints.platform.as_str() {
+        "Linux" => hints.platform_version.is_empty(),
+        "Windows" | "macOS" => {
+            let parts = hints.platform_version.split('.').collect::<Vec<_>>();
+            parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+        }
+        _ => false,
+    };
+    if !version_valid {
+        issues.push(ValidationIssue::InvalidPlatformVersion);
+    }
 }
 
 fn validate_brands(

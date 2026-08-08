@@ -10,6 +10,7 @@ use rand::seq::IteratorRandom;
 use serde::Serialize;
 use serde_json::Value;
 use stealth_oxide::PlatformProfile;
+use stealth_oxide::redaction;
 
 mod common;
 use common::{BrowserSession, ExampleLaunch, ExampleProxy};
@@ -123,7 +124,7 @@ async fn main() -> Result<()> {
     let visits = outcomes.into_iter().map(|outcome| outcome.report).collect();
 
     let report = ContinuityReport {
-        requested_url: arguments.url,
+        requested_url: redaction::url(&arguments.url),
         browser_mode: if arguments.headful {
             "headful"
         } else {
@@ -224,8 +225,8 @@ async fn run_visit(arguments: &Arguments, profile: &Path, visit: u8) -> Result<V
             title: snapshot
                 .as_ref()
                 .and_then(|value| value["title"].as_str())
-                .unwrap_or_default()
-                .to_string(),
+                .map(redaction::bounded)
+                .unwrap_or_default(),
             final_url: sanitize_url(
                 snapshot
                     .as_ref()
@@ -308,9 +309,9 @@ async fn cookies_for(page: &chromiumoxide::Page, url: &str) -> Result<Vec<Cookie
 impl From<Cookie> for CookieRecord {
     fn from(cookie: Cookie) -> Self {
         Self {
-            name: cookie.name,
-            domain: cookie.domain,
-            path: cookie.path,
+            name: redaction::bounded(&cookie.name),
+            domain: redaction::bounded(&cookie.domain),
+            path: redaction::bounded(&cookie.path),
             size: cookie.size,
             session: cookie.session,
             secure: cookie.secure,
@@ -320,12 +321,7 @@ impl From<Cookie> for CookieRecord {
 }
 
 fn sanitize_url(value: &str) -> String {
-    let Ok(mut url) = url::Url::parse(value) else {
-        return "<non-url>".to_string();
-    };
-    url.set_query(None);
-    url.set_fragment(None);
-    url.to_string()
+    redaction::url(value)
 }
 
 fn same_navigation_url(observed: &str, requested: &str) -> bool {

@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
                 native: false,
                 proxy: Some(proxy.clone()),
                 user_data_dir: None,
+                network_information_downlink_max: false,
             },
         ),
     )

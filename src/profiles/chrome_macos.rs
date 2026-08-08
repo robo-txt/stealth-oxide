@@ -20,6 +20,8 @@ pub fn chrome_macos() -> BrowserProfile {
                 bitness: "64".to_string(),
                 model: "".to_string(),
                 mobile: false,
+                wow64: None,
+                form_factors: Some(vec!["Desktop".to_string()]),
             }),
         },
         screen: desktop_screen(),

@@ -133,6 +133,10 @@ pub struct UserAgentClientHintsProfile {
     pub model: String,
     /// Whether the identity represents a mobile browser.
     pub mobile: bool,
+    /// Optional Windows-on-Windows 64-bit marker.
+    pub wow64: Option<bool>,
+    /// Optional high-entropy form-factor values such as `Desktop` or `Mobile`.
+    pub form_factors: Option<Vec<String>>,
 }
 
 /// A User-Agent Client Hint brand/version pair.

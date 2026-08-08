@@ -79,6 +79,18 @@ pub enum ValidationIssue {
     /// Required Chromium and Google Chrome brand entries are missing.
     #[error("UA Client Hints must include Chromium and Google Chrome brands")]
     MissingChromeBrands,
+    /// WoW64 is only valid for a 32-bit x86 Windows browser identity.
+    #[error("UA Client Hint WoW64 metadata is incompatible with the identity")]
+    InvalidWow64,
+    /// Architecture and bitness are not a supported Client Hint combination.
+    #[error("UA Client Hint architecture and bitness are incompatible")]
+    InvalidArchitectureBitness,
+    /// Model and form-factor metadata contradict the mobile state.
+    #[error("UA Client Hint model and form factors contradict the mobile state")]
+    MobileMetadataMismatch,
+    /// Platform version does not follow the platform's expected format.
+    #[error("UA Client Hint platform version has an invalid format")]
+    InvalidPlatformVersion,
 }
 
 /// Error returned while validating a profile or applying a CDP patch.

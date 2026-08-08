@@ -4,12 +4,17 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use chromiumoxide::cdp::browser_protocol::network::{
-    EnableParams, EventLoadingFailed, EventResponseReceived,
+    EnableParams, EventLoadingFailed, EventRequestWillBeSent, EventResponseReceived,
 };
+use chromiumoxide::cdp::browser_protocol::page::GetFrameTreeParams;
 use futures::StreamExt;
 use serde::Serialize;
 use serde_json::Value;
-use stealth_oxide::PlatformProfile;
+use stealth_oxide::redaction;
+use stealth_oxide::{
+    PlatformProfile, classify_failure, classify_resource, sanitize_error_name,
+    sanitize_initiator_origin,
+};
 
 mod common;
 use common::{BrowserSession, ExampleLaunch};
@@ -31,14 +36,37 @@ struct ResponseRecord {
     protocol: Option<String>,
     remote_ip: Option<String>,
     headers: BTreeMap<String, String>,
+    frame_id: Option<String>,
+    loader_id: String,
+    scope: ResourceScopeJson,
+    initiator_type: Option<String>,
+    initiator_origin: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RequestMeta {
+    frame_id: Option<String>,
+    loader_id: String,
+    initiator_type: Option<String>,
+    initiator_origin: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceScopeJson {
+    classification: String,
+    evidence: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FailureRecord {
     resource_type: String,
+    category: String,
+    error_name: String,
     error: String,
     blocked_reason: Option<String>,
+    cors_error: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -56,6 +84,8 @@ struct Report {
     document_responses: Vec<ResponseRecord>,
     suspicious_responses: Vec<ResponseRecord>,
     failures: Vec<FailureRecord>,
+    failure_counts: BTreeMap<String, usize>,
+    topology_coverage: &'static str,
 }
 
 #[tokio::main]
@@ -72,6 +102,16 @@ async fn main() -> Result<()> {
     .await?;
     let page = browser.new_blank_page().await?;
     page.inner().execute(EnableParams::default()).await?;
+    let main_frame_id = page
+        .inner()
+        .execute(GetFrameTreeParams {})
+        .await?
+        .result
+        .frame_tree
+        .frame
+        .id
+        .inner()
+        .clone();
 
     let mut response_events = page
         .inner()
@@ -80,17 +120,70 @@ async fn main() -> Result<()> {
     let mut failure_events = page.inner().event_listener::<EventLoadingFailed>().await?;
     let responses = Arc::new(Mutex::new(Vec::new()));
     let failures = Arc::new(Mutex::new(Vec::new()));
+    let requests = Arc::new(Mutex::new(BTreeMap::<String, RequestMeta>::new()));
+
+    let mut request_events = page
+        .inner()
+        .event_listener::<EventRequestWillBeSent>()
+        .await?;
+    let request_sink = Arc::clone(&requests);
+    let request_task = tokio::spawn(async move {
+        while let Some(event) = request_events.next().await {
+            request_sink.lock().unwrap().insert(
+                event.request_id.inner().clone(),
+                RequestMeta {
+                    frame_id: event.frame_id.as_ref().map(|id| id.inner().clone()),
+                    loader_id: event.loader_id.inner().clone(),
+                    initiator_type: Some(format!("{:?}", event.initiator.r#type)),
+                    initiator_origin: sanitize_initiator_origin(event.initiator.url.as_deref()),
+                },
+            );
+        }
+    });
 
     let response_sink = Arc::clone(&responses);
+    let request_lookup = Arc::clone(&requests);
+    let response_main_frame = main_frame_id.clone();
     let response_task = tokio::spawn(async move {
         while let Some(event) = response_events.next().await {
+            let meta = request_lookup
+                .lock()
+                .unwrap()
+                .get(event.request_id.inner())
+                .cloned();
+            let frame_id = event
+                .frame_id
+                .as_ref()
+                .map(|id| id.inner().clone())
+                .or_else(|| meta.as_ref().and_then(|meta| meta.frame_id.clone()));
+            let scope = classify_resource(
+                frame_id.as_deref(),
+                Some(response_main_frame.as_str()),
+                &format!("{:?}", event.r#type),
+            );
             response_sink.lock().unwrap().push(ResponseRecord {
                 url: sanitize_url(&event.response.url),
                 status: event.response.status,
                 resource_type: format!("{:?}", event.r#type),
                 protocol: event.response.protocol.clone(),
                 remote_ip: event.response.remote_ip_address.clone(),
-                headers: diagnostic_headers(event.response.headers.inner()),
+                headers: redaction::safe_headers(event.response.headers.inner()),
+                frame_id,
+                loader_id: meta
+                    .as_ref()
+                    .map(|meta| meta.loader_id.clone())
+                    .unwrap_or_default(),
+                scope: ResourceScopeJson {
+                    classification: format!("{scope:?}"),
+                    evidence: if meta.is_some() {
+                        "request-correlated"
+                    } else {
+                        "response-only"
+                    }
+                    .to_string(),
+                },
+                initiator_type: meta.as_ref().and_then(|meta| meta.initiator_type.clone()),
+                initiator_origin: meta.as_ref().and_then(|meta| meta.initiator_origin.clone()),
             });
         }
     });
@@ -98,13 +191,23 @@ async fn main() -> Result<()> {
     let failure_sink = Arc::clone(&failures);
     let failure_task = tokio::spawn(async move {
         while let Some(event) = failure_events.next().await {
+            let blocked_reason = event
+                .blocked_reason
+                .as_ref()
+                .map(|value| format!("{value:?}"));
+            let category = classify_failure(
+                &event.error_text,
+                event.canceled.unwrap_or(false),
+                blocked_reason.as_deref(),
+                event.cors_error_status.is_some(),
+            );
             failure_sink.lock().unwrap().push(FailureRecord {
                 resource_type: format!("{:?}", event.r#type),
-                error: event.error_text.clone(),
-                blocked_reason: event
-                    .blocked_reason
-                    .as_ref()
-                    .map(|value| format!("{value:?}")),
+                category: category.to_string(),
+                error_name: sanitize_error_name(&event.error_text),
+                error: sanitize_error_name(&event.error_text),
+                blocked_reason,
+                cors_error: event.cors_error_status.is_some(),
             });
         }
     });
@@ -124,9 +227,14 @@ async fn main() -> Result<()> {
         .into_value()?;
 
     response_task.abort();
+    request_task.abort();
     failure_task.abort();
     let responses = std::mem::take(&mut *responses.lock().unwrap());
     let failures = std::mem::take(&mut *failures.lock().unwrap());
+    let mut failure_counts = BTreeMap::new();
+    for failure in &failures {
+        *failure_counts.entry(failure.category.clone()).or_default() += 1;
+    }
     let mut status_counts = BTreeMap::new();
     let mut host_counts = BTreeMap::new();
     for response in &responses {
@@ -170,6 +278,8 @@ async fn main() -> Result<()> {
         document_responses,
         suspicious_responses,
         failures,
+        failure_counts,
+        topology_coverage: "page-target-only; worker and OOPIF targets may be unobserved",
     };
 
     browser.close().await?;
@@ -177,52 +287,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn diagnostic_headers(value: &Value) -> BTreeMap<String, String> {
-    const ALLOWED: &[&str] = &[
-        "cache-control",
-        "cf-mitigated",
-        "cf-ray",
-        "content-type",
-        "location",
-        "server",
-        "x-akamai-transformed",
-        "x-cache",
-        "x-datadome",
-        "x-px",
-        "x-sucuri-id",
-    ];
-    value
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(name, _)| {
-            ALLOWED
-                .iter()
-                .any(|allowed| name.eq_ignore_ascii_case(allowed))
-        })
-        .filter_map(|(name, value)| {
-            value.as_str().map(|value| {
-                let value = if name.eq_ignore_ascii_case("location") {
-                    sanitize_url(value)
-                } else {
-                    value.to_string()
-                };
-                (name.to_ascii_lowercase(), value)
-            })
-        })
-        .collect()
-}
-
 fn sanitize_url(value: &str) -> String {
-    let Ok(mut url) = url::Url::parse(value) else {
-        return "<non-url>".to_string();
-    };
-    if !matches!(url.scheme(), "http" | "https") {
-        return format!("<{}-url>", url.scheme());
-    }
-    url.set_query(None);
-    url.set_fragment(None);
-    url.to_string()
+    redaction::url(value)
 }
 
 fn suspicious_url(value: &str) -> bool {

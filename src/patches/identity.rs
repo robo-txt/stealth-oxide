@@ -28,7 +28,7 @@ fn build_user_agent_metadata(
         .map(build_brand_version)
         .collect::<Result<Vec<_>>>()?;
 
-    UserAgentMetadata::builder()
+    let mut builder = UserAgentMetadata::builder()
         .brands(brands)
         .full_version_lists(full_version_list)
         .platform(client_hints.platform.clone())
@@ -36,7 +36,14 @@ fn build_user_agent_metadata(
         .architecture(client_hints.architecture.clone())
         .bitness(client_hints.bitness.clone())
         .model(client_hints.model.clone())
-        .mobile(client_hints.mobile)
+        .mobile(client_hints.mobile);
+    if let Some(wow64) = client_hints.wow64 {
+        builder = builder.wow64(wow64);
+    }
+    if let Some(form_factors) = &client_hints.form_factors {
+        builder = builder.form_factors(form_factors.iter().cloned());
+    }
+    builder
         .build()
         .map_err(|message| Error::invalid_parameters("user-agent metadata", message))
 }
