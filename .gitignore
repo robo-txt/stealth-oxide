@@ -1,7 +1,11 @@
 /target
 /skills/
 /AGENTS.md
-/docs/
+/docs/*
+!/docs/images/
+/docs/images/*
+!/docs/images/creepjs-full-page.png
+!/docs/images/sannysoft-full-page.png
 
 # Privately supplied Windows fonts. Keep the directory instructions tracked,
 # but never commit licensed font binaries.

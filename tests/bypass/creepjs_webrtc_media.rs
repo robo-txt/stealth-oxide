@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::time::{Instant, sleep};
 
-mod common;
+use super::common;
 use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 

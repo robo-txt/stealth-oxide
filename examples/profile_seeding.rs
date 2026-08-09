@@ -1,15 +1,15 @@
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::StealthConfig;
+use stealth_oxide::{CookieSeed, ProfileSeed, StealthConfig, apply_profile_seeds};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let browser_config = BrowserConfig::builder()
         .build()
         .map_err(anyhow::Error::msg)?;
-
     let (mut browser, mut handler) = Browser::launch(browser_config).await?;
+
     tokio::spawn(async move {
         while let Some(event) = handler.next().await {
             if let Err(error) = event {
@@ -19,14 +19,18 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::recommended().apply(&page).await?;
-    page.goto("https://example.com").await?;
+    StealthConfig::recommended().apply(&page).await?;
 
-    println!(
-        "page title: {}",
-        page.get_title().await?.unwrap_or_default()
-    );
-    println!("applied patches: {:?}", report.applied());
+    let seeds = [ProfileSeed::new().cookie(
+        CookieSeed::new("example-session", "demo", "https://example.com/")
+            .secure(true)
+            .http_only(true),
+    )];
+    let report = apply_profile_seeds(&page, &seeds).await?;
+
+    page.goto("https://example.com").await?;
+    println!("seeded cookies: {}", report.cookies);
+
     browser.close().await?;
     Ok(())
 }

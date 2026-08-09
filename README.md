@@ -9,13 +9,29 @@ native browser values, and override every modeled value. Browser launch,
 proxies, authentication, page creation, navigation, and lifecycle remain under
 the application's control.
 
+## Browser-test container captures
+
+The project container applies a coherent Windows desktop profile before page
+scripts run. This full-page CreepJS report was captured only after its main
+fingerprint sections, ratings, and page height had finished loading. Observed
+network addresses are redacted before the PNG is written.
+
+![Full-page CreepJS report captured with stealth-oxide](docs/images/creepjs-full-page.png)
+
+The same container profile also produces this fully loaded Sannysoft report:
+
+![Full-page Sannysoft report captured with stealth-oxide](docs/images/sannysoft-full-page.png)
+
+This is a reproducible environment snapshot, not a guarantee about how any
+third-party security or fraud-detection service will classify a browser.
+
 ## Installation
 
-Until the first crates.io release, depend on the repository:
+Add the crate and its browser-runtime dependencies:
 
 ```toml
 [dependencies]
-stealth-oxide = { git = "https://github.com/robo-txt/stealth-oxide.git" }
+stealth-oxide = "0.1.0"
 chromiumoxide = "0.9.1"
 anyhow = "1"
 futures = "0.3"
@@ -30,7 +46,7 @@ when an application needs reproducible test cookies or origin storage:
 ```toml
 [dependencies]
 stealth-oxide = {
-    git = "https://github.com/robo-txt/stealth-oxide.git",
+    version = "0.1.0",
     features = ["seeding"]
 }
 ```
@@ -198,18 +214,8 @@ browser.close().await?;
 # }
 ```
 
-The `url_probe` and `random_proxy_probe` examples contain example-local proxy
-parsing. Proxy addresses and credentials are not part of the library API.
-
 Retries, reloads, and profile lifecycle also remain application concerns.
 `stealth-oxide` never automatically revisits a URL after a blocked response.
-The repository-only `profile_continuity` diagnostic defaults to one visit and
-supports explicit `--reopen` and conditional `--reopen-on-403` controls. Its
-`preserve`, `clear-selected`, and `fresh-profile` modes are test harness
-operations, not library behavior. An optional `--network-check-url` control
-compares the returned network identity before and after each visit and across
-reopened processes. The report contains equality booleans only; it never emits
-the identity value.
 
 ## Examples
 
@@ -217,20 +223,23 @@ The public examples focus on using the crate as a dependency:
 
 ```bash
 cargo run --example basic
-cargo run --example selective_patches
-cargo run --features seeding --example seeded_profile -- --url https://example.com
+cargo run --example custom_configuration
+cargo run --example custom_profile
+cargo run --features seeding --example profile_seeding
+docker compose run --rm stealth-oxide cargo run --example creepjs_screenshot
+docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
 ```
 
-`basic` launches Chromium, applies the recommended configuration before
-navigation, and reports the applied patches. `selective_patches` demonstrates
+`basic` is the smallest complete browser example: it launches Chromium, keeps
+the Chromiumoxide event handler running, applies the recommended configuration
+before navigation, and prints the page title and applied patches.
+`custom_configuration` demonstrates
 Playwright-Stealth-style opt-in, native, and override controls without launching
-a browser. The URL and proxy probes are repository utilities rather than
-library APIs.
-
-`seeded_profile` creates a fresh, non-personal Chromium profile and installs
-repeatable test cookies, local storage, and IndexedDB records. It accepts any
-number of JSON seed documents. See
-[`examples/seeds/README.md`](examples/seeds/README.md).
+a browser. `custom_profile` builds and applies a coherent typed Windows profile.
+`creepjs_screenshot` and `sannysoft_screenshot` wait for their respective
+reports and save the full-page images shown above when run in the project
+container. `profile_seeding` shows the optional seeding API with one in-memory
+cookie.
 
 Library users must also opt in at runtime by calling `apply_profile_seeds`:
 
