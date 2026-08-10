@@ -1,29 +1,49 @@
 # stealth-oxide
 
-`stealth-oxide` applies configurable, typed Chrome DevTools Protocol patches to
-an existing [`chromiumoxide`](https://crates.io/crates/chromiumoxide) page.
+Typed, configurable browser profiles for
+[`chromiumoxide`](https://crates.io/crates/chromiumoxide), applied through the
+Chrome DevTools Protocol before site scripts run.
 
-The crate provides Playwright-Stealth-style control: start with recommended
-defaults or no patches, enable or disable operations independently, preserve
-native browser values, and override every modeled value. Browser launch,
-proxies, authentication, page creation, navigation, and lifecycle remain under
-the application's control.
+`stealth-oxide` gives Rust applications Playwright-Stealth-style control without
+taking over the browser lifecycle:
+
+- Start with a coherent Linux, macOS, or Windows desktop profile.
+- Apply all recommended patches or enable them individually.
+- Preserve native Chromium values where emulation would be less accurate.
+- Validate locale, timezone, identity, screen, media, and touch consistency
+  before sending CDP commands.
+- Keep browser launch, proxies, authentication, navigation, and shutdown in
+  application code.
 
 ## Browser-test container captures
 
-The project container applies a coherent Windows desktop profile before page
-scripts run. This full-page CreepJS report was captured only after its main
-fingerprint sections, ratings, and page height had finished loading. Observed
-network addresses are redacted before the PNG is written.
+The project container applies its coherent Windows desktop profile before page
+scripts run. Both examples wait for the report content and document height to
+stabilize before capturing the complete page. Click either preview for the
+full-resolution PNG.
 
-![Full-page CreepJS report captured with stealth-oxide](docs/images/creepjs-full-page.png)
+<table>
+  <tr>
+    <th>CreepJS</th>
+    <th>Sannysoft</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="docs/images/creepjs-full-page.png">
+        <img src="docs/images/creepjs-full-page.png" alt="Full-page CreepJS report captured with stealth-oxide" width="420">
+      </a>
+    </td>
+    <td>
+      <a href="docs/images/sannysoft-full-page.png">
+        <img src="docs/images/sannysoft-full-page.png" alt="Full-page Sannysoft report captured with stealth-oxide" width="420">
+      </a>
+    </td>
+  </tr>
+</table>
 
-The same container profile also produces this fully loaded Sannysoft report:
-
-![Full-page Sannysoft report captured with stealth-oxide](docs/images/sannysoft-full-page.png)
-
-This is a reproducible environment snapshot, not a guarantee about how any
-third-party security or fraud-detection service will classify a browser.
+Observed network addresses are redacted before the PNGs are written. These are
+reproducible environment snapshots, not guarantees about how a third-party
+security or fraud-detection service will classify a browser.
 
 ## Installation
 
@@ -51,10 +71,10 @@ stealth-oxide = {
 }
 ```
 
-## Recommended configuration
+## Quick start
 
-Create an `about:blank` page, apply the configuration, and navigate only after
-patching succeeds:
+Create an `about:blank` page, keep Chromiumoxide's event handler running, apply
+the profile, and only then navigate to the destination:
 
 ```rust,no_run
 use anyhow::Result;
@@ -217,9 +237,9 @@ browser.close().await?;
 Retries, reloads, and profile lifecycle also remain application concerns.
 `stealth-oxide` never automatically revisits a URL after a blocked response.
 
-## Examples
+## Runnable examples
 
-The public examples focus on using the crate as a dependency:
+Each example focuses on one public workflow:
 
 ```bash
 cargo run --example basic
@@ -230,16 +250,13 @@ docker compose run --rm stealth-oxide cargo run --example creepjs_screenshot
 docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
 ```
 
-`basic` is the smallest complete browser example: it launches Chromium, keeps
-the Chromiumoxide event handler running, applies the recommended configuration
-before navigation, and prints the page title and applied patches.
-`custom_configuration` demonstrates
-Playwright-Stealth-style opt-in, native, and override controls without launching
-a browser. `custom_profile` builds and applies a coherent typed Windows profile.
-`creepjs_screenshot` and `sannysoft_screenshot` wait for their respective
-reports and save the full-page images shown above when run in the project
-container. `profile_seeding` shows the optional seeding API with one in-memory
-cookie.
+- `basic`: launch Chromium, apply the recommended profile, and navigate.
+- `custom_configuration`: select native, disabled, and overridden patches.
+- `custom_profile`: build and apply a typed Windows desktop profile.
+- `profile_seeding`: install repeatable test state with the optional `seeding`
+  feature.
+- `creepjs_screenshot` and `sannysoft_screenshot`: reproduce the full-page
+  container captures shown above.
 
 Library users must also opt in at runtime by calling `apply_profile_seeds`:
 
