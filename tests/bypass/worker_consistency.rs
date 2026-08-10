@@ -16,7 +16,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
-mod common;
+use super::common;
 use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 use stealth_oxide::profiles::{NavigatorProfile, UserAgentClientHintsProfile};

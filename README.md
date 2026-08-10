@@ -1,21 +1,57 @@
 # stealth-oxide
 
-`stealth-oxide` applies configurable, typed Chrome DevTools Protocol patches to
-an existing [`chromiumoxide`](https://crates.io/crates/chromiumoxide) page.
+Typed, configurable browser profiles for
+[`chromiumoxide`](https://crates.io/crates/chromiumoxide), applied through the
+Chrome DevTools Protocol before site scripts run.
 
-The crate provides Playwright-Stealth-style control: start with recommended
-defaults or no patches, enable or disable operations independently, preserve
-native browser values, and override every modeled value. Browser launch,
-proxies, authentication, page creation, navigation, and lifecycle remain under
-the application's control.
+`stealth-oxide` gives Rust applications Playwright-Stealth-style control without
+taking over the browser lifecycle:
+
+- Start with a coherent Linux, macOS, or Windows desktop profile.
+- Apply every patch from the selected preset or enable patches individually.
+- Preserve native Chromium values where emulation would be less accurate.
+- Validate locale, timezone, identity, screen, media, and touch consistency
+  before sending CDP commands.
+- Keep browser launch, proxies, authentication, navigation, and shutdown in
+  application code.
+
+## Browser-test container captures
+
+The project container applies its coherent Windows desktop profile before page
+scripts run. Both examples wait for the report content and document height to
+stabilize before capturing the complete page. Click either preview for the
+full-resolution PNG.
+
+<table>
+  <tr>
+    <th>CreepJS</th>
+    <th>Sannysoft</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="docs/images/creepjs-full-page.png">
+        <img src="docs/images/creepjs-full-page.png" alt="Full-page CreepJS report captured with stealth-oxide" width="420">
+      </a>
+    </td>
+    <td>
+      <a href="docs/images/sannysoft-full-page.png">
+        <img src="docs/images/sannysoft-full-page.png" alt="Full-page Sannysoft report captured with stealth-oxide" width="420">
+      </a>
+    </td>
+  </tr>
+</table>
+
+Observed network addresses are redacted before the PNGs are written. These are
+reproducible environment snapshots, not guarantees about how a third-party
+security or fraud-detection service will classify a browser.
 
 ## Installation
 
-Until the first crates.io release, depend on the repository:
+Add the crate and its browser-runtime dependencies:
 
 ```toml
 [dependencies]
-stealth-oxide = { git = "https://github.com/robo-txt/stealth-oxide.git" }
+stealth-oxide = "0.1.0"
 chromiumoxide = "0.9.1"
 anyhow = "1"
 futures = "0.3"
@@ -24,16 +60,27 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 Rust 1.86 or newer is required by the resolved Chromiumoxide dependency graph.
 
-## Recommended configuration
+Profile seeding is optional and disabled by default. Enable it explicitly only
+when an application needs reproducible test cookies or origin storage:
 
-Create an `about:blank` page, apply the configuration, and navigate only after
-patching succeeds:
+```toml
+[dependencies]
+stealth-oxide = {
+    version = "0.1.0",
+    features = ["seeding"]
+}
+```
+
+## Quick start
+
+Create an `about:blank` page, keep Chromiumoxide's event handler running, apply
+the profile, and only then navigate to the destination:
 
 ```rust,no_run
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::StealthConfig;
+use stealth_oxide::{PlatformProfile, StealthConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,7 +97,9 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::recommended().apply(&page).await?;
+    let report = StealthConfig::for_platform(PlatformProfile::Linux)
+        .apply(&page)
+        .await?;
     page.goto("https://example.com").await?;
 
     println!("applied patches: {:?}", report.applied());
@@ -59,9 +108,9 @@ async fn main() -> Result<()> {
 }
 ```
 
-`recommended()` selects the platform matching the Rust target. A preset
-describes the requested browser identity; it cannot transform the underlying
-operating system, GPU, fonts, voices, or platform-only browser features.
+Platform selection is always explicit: choose `Linux`, `MacOS`, or `Windows`.
+A preset describes the requested browser identity; it cannot transform the
+underlying operating system, GPU, fonts, voices, or platform-only features.
 
 ## Granular control
 
@@ -69,9 +118,9 @@ Every patch can use an override, preserve Chromium's native value, or be
 disabled:
 
 ```rust
-use stealth_oxide::{Patch, PatchState, StealthConfig};
+use stealth_oxide::{Patch, PatchState, PlatformProfile, StealthConfig};
 
-let config = StealthConfig::recommended()
+let config = StealthConfig::for_platform(PlatformProfile::Windows)
     .disable(Patch::Screen)
     .use_native(Patch::Touch)
     .timezone("America/Toronto")
@@ -91,6 +140,42 @@ Available patches are:
 - `MediaFeatures`: color scheme, reduced motion, forced colors, color gamut,
   and monochrome depth
 - `Touch`: touch enablement and maximum touch points
+
+### Override reference
+
+All configuration overrides are builder methods on `StealthConfig`:
+
+| Area | Override methods |
+| --- | --- |
+| Complete identity | `identity`, `identity_patch` |
+| User agent and Client Hints | `user_agent`, `client_hints` |
+| Navigator | `navigator_platform`, `languages` |
+| Locale | `locale`, `locale_patch` |
+| Timezone | `timezone`, `timezone_patch` |
+| Screen | `screen`, `screen_patch`, `screen_size`, `device_scale_factor` |
+| Media features | `media_features`, `media_features_patch`, `color_scheme`, `reduced_motion`, `forced_colors`, `color_gamut` |
+| Touch | `touch`, `touch_patch` |
+| Validation behavior | `consistency_policy` |
+
+The complete `MediaFeaturesConfig` also exposes `monochrome`, and
+`ScreenConfig` can be supplied when the complete typed screen value is needed.
+For any patch, `enable`, `disable`, and `use_native` control whether the
+selected preset value is overridden, omitted, or preserved from Chromium.
+
+For reusable custom profiles, `BrowserProfileBuilder` supports every modeled
+profile field:
+
+| Area | Profile builder methods |
+| --- | --- |
+| Metadata | `name` |
+| Identity | `user_agent`, `navigator_platform`, `client_hints`, `languages` |
+| Locale and timezone | `locale`, `timezone` |
+| Screen | `screen`, `available_screen`, `device_scale_factor` |
+| Media features | `color_scheme`, `reduced_motion`, `forced_colors`, `color_gamut`, `monochrome` |
+| Touch | `touch` |
+
+Call `build()` to validate the customized profile, then pass it to
+`StealthConfig::from_profile`.
 
 Start with no patches and opt in explicitly:
 
@@ -158,7 +243,7 @@ Chromiumoxide. `stealth-oxide` never receives or stores them.
 use chromiumoxide::auth::Credentials;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::StealthConfig;
+use stealth_oxide::{PlatformProfile, StealthConfig};
 
 # async fn example() -> anyhow::Result<()> {
 let config = BrowserConfig::builder()
@@ -180,15 +265,62 @@ page.authenticate(Credentials {
     password: "password".into(),
 })
 .await?;
-StealthConfig::recommended().apply(&page).await?;
+StealthConfig::for_platform(PlatformProfile::Linux)
+    .apply(&page)
+    .await?;
 page.goto("https://example.com").await?;
 browser.close().await?;
 # Ok(())
 # }
 ```
 
-The `url_probe` and `random_proxy_probe` examples contain example-local proxy
-parsing. Proxy addresses and credentials are not part of the library API.
+Retries, reloads, and profile lifecycle also remain application concerns.
+`stealth-oxide` never automatically revisits a URL after a blocked response.
+
+## Runnable examples
+
+Each example focuses on one public workflow:
+
+```bash
+cargo run --example basic
+cargo run --example custom_configuration
+cargo run --example custom_profile
+cargo run --features seeding --example profile_seeding
+docker compose run --rm stealth-oxide cargo run --example creepjs_screenshot
+docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
+```
+
+- `basic`: launch Chromium, apply the recommended profile, and navigate.
+- `custom_configuration`: select native, disabled, and overridden patches.
+- `custom_profile`: build and apply a typed Windows desktop profile.
+- `profile_seeding`: install repeatable test state with the optional `seeding`
+  feature.
+- `creepjs_screenshot` and `sannysoft_screenshot`: reproduce the full-page
+  container captures shown above.
+
+Library users must also opt in at runtime by calling `apply_profile_seeds`:
+
+```rust,no_run
+# #[cfg(feature = "seeding")]
+# async fn seed(page: &chromiumoxide::Page) -> stealth_oxide::Result<()> {
+use stealth_oxide::{CookieSeed, ProfileSeed, apply_profile_seeds};
+
+let seeds = [ProfileSeed::new().cookie(
+    CookieSeed::new("test-session", "value", "https://example.com/")
+        .secure(true)
+        .http_only(true),
+)];
+
+apply_profile_seeds(page, &seeds).await?;
+# Ok(())
+# }
+```
+
+Omit the `seeding` feature—or simply do not call `apply_profile_seeds`—to seed
+nothing. Passing an empty slice is also a no-op.
+
+CreepJS probes live under `tests/` as ignored browser diagnostics. See
+[`tests/README.md`](tests/README.md) for the container commands.
 
 ## Container development
 

@@ -4,14 +4,15 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::time::{Instant, sleep};
 
-mod common;
-use common::BrowserSession as StealthBrowser;
+use super::common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 const CREEPJS_URL: &str = "https://abrahamjuliot.github.io/creepjs/";
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[tokio::test]
+#[ignore = "requires Chromium, network access, and the desktop container"]
+async fn creepjs_timezone_intl_report() -> Result<()> {
     let browser = StealthBrowser::launch(chrome_windows()).await?;
     let version = browser.version().await?;
     let page = browser

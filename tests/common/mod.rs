@@ -27,6 +27,9 @@ impl TestBrowser {
                 .arg("ignore-gpu-blocklist")
                 .arg("enable-gpu-rasterization");
         }
+        if env_enabled("STEALTH_OXIDE_DOWNLINK_MAX") {
+            builder = builder.arg("enable-network-information-downlink-max");
+        }
 
         let config = builder.build().map_err(anyhow::Error::msg)?;
         let (browser, mut handler) = Browser::launch(config).await?;
@@ -73,6 +76,11 @@ pub struct TestPage(Page);
 impl TestPage {
     pub fn inner(&self) -> &Page {
         &self.0
+    }
+
+    pub async fn goto(&self, url: &str) -> chromiumoxide::error::Result<()> {
+        self.0.goto(url).await?;
+        Ok(())
     }
 }
 

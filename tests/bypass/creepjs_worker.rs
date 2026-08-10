@@ -4,8 +4,8 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::time::{Instant, sleep};
 
-mod common;
-use common::BrowserSession as StealthBrowser;
+use super::common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::BrowserProfile;
 use stealth_oxide::profiles::chrome_linux::chrome_linux;
 use stealth_oxide::profiles::chrome_macos::chrome_macos;
@@ -26,8 +26,9 @@ fn selected_profile() -> Result<BrowserProfile> {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[tokio::test]
+#[ignore = "requires Chromium, network access, and the desktop container"]
+async fn creepjs_worker_report() -> Result<()> {
     let profile = selected_profile()?;
     println!("Profile: {}", profile.name());
     let browser = StealthBrowser::launch(profile).await?;

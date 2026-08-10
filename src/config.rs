@@ -96,18 +96,6 @@ pub struct StealthConfig {
 }
 
 impl StealthConfig {
-    /// Creates the recommended Linux desktop configuration.
-    pub fn recommended() -> Self {
-        #[cfg(target_os = "windows")]
-        let platform = PlatformProfile::Windows;
-        #[cfg(target_os = "macos")]
-        let platform = PlatformProfile::MacOS;
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        let platform = PlatformProfile::Linux;
-
-        Self::for_platform(platform)
-    }
-
     /// Creates a configuration with every patch disabled.
     pub fn none() -> Self {
         let defaults = PlatformProfile::Linux.profile();
@@ -458,12 +446,6 @@ impl StealthConfig {
             unreachable!("media features were replaced with an override")
         };
         value
-    }
-}
-
-impl Default for StealthConfig {
-    fn default() -> Self {
-        Self::recommended()
     }
 }
 

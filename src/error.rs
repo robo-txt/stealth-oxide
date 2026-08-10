@@ -79,12 +79,45 @@ pub enum ValidationIssue {
     /// Required Chromium and Google Chrome brand entries are missing.
     #[error("UA Client Hints must include Chromium and Google Chrome brands")]
     MissingChromeBrands,
+    /// WoW64 is only valid for a 32-bit x86 Windows browser identity.
+    #[error("UA Client Hint WoW64 metadata is incompatible with the identity")]
+    InvalidWow64,
+    /// Architecture and bitness are not a supported Client Hint combination.
+    #[error("UA Client Hint architecture and bitness are incompatible")]
+    InvalidArchitectureBitness,
+    /// Model and form-factor metadata contradict the mobile state.
+    #[error("UA Client Hint model and form factors contradict the mobile state")]
+    MobileMetadataMismatch,
+    /// Platform version does not follow the platform's expected format.
+    #[error("UA Client Hint platform version has an invalid format")]
+    InvalidPlatformVersion,
 }
 
 /// Error returned while validating a profile or applying a CDP patch.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A network-interceptor header policy contains an unsafe or invalid value.
+    #[cfg(feature = "interceptor")]
+    #[error("invalid interceptor header policy: {message}")]
+    InvalidInterceptorHeader {
+        /// Description of the rejected header mutation.
+        message: String,
+    },
+
+    /// A profile seed document contains an invalid value.
+    #[cfg(feature = "seeding")]
+    #[error("invalid profile seed: {message}")]
+    InvalidSeed {
+        /// Description of the invalid seed value.
+        message: String,
+    },
+
+    /// A profile seed could not be decoded from JSON.
+    #[cfg(feature = "seeding")]
+    #[error("invalid profile seed JSON: {0}")]
+    SeedJson(#[from] serde_json::Error),
+
     /// Strict validation rejected one or more known contradictions.
     #[error("stealth configuration failed validation: {issues}")]
     Validation {
@@ -125,6 +158,20 @@ pub enum Error {
 }
 
 impl Error {
+    #[cfg(feature = "interceptor")]
+    pub(crate) fn invalid_interceptor_header(message: impl Into<String>) -> Self {
+        Self::InvalidInterceptorHeader {
+            message: message.into(),
+        }
+    }
+
+    #[cfg(feature = "seeding")]
+    pub(crate) fn invalid_seed(message: impl Into<String>) -> Self {
+        Self::InvalidSeed {
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn invalid_parameters(patch: &'static str, message: impl Into<String>) -> Self {
         Self::InvalidPatchParameters {
             patch,

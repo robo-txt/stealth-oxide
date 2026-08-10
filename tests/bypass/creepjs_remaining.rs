@@ -1,32 +1,24 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use chromiumoxide::cdp::browser_protocol::emulation::ClearDeviceMetricsOverrideParams;
 use serde_json::Value;
 use tokio::time::{Instant, sleep};
 
-mod common;
-use common::BrowserSession as StealthBrowser;
+use super::common;
+use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 const CREEPJS_URL: &str = "https://abrahamjuliot.github.io/creepjs/";
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[tokio::test]
+#[ignore = "requires Chromium, network access, and the desktop container"]
+async fn creepjs_remaining_report() -> Result<()> {
     let browser = StealthBrowser::launch(chrome_windows()).await?;
+    let version = browser.version().await?;
     let page = browser
         .new_page(CREEPJS_URL)
         .await
         .context("failed to open CreepJS")?;
-    if matches!(
-        std::env::var("STEALTH_OXIDE_CLEAR_SCREEN_OVERRIDE").as_deref(),
-        Ok("1") | Ok("true")
-    ) {
-        page.inner()
-            .execute(ClearDeviceMetricsOverrideParams {})
-            .await?;
-        page.goto(CREEPJS_URL).await?;
-    }
     let deadline = Instant::now() + Duration::from_secs(60);
 
     let report = loop {
@@ -41,29 +33,24 @@ async fn main() -> Result<()> {
                         const root = heading?.closest('[class*="col-"]');
                         return !root ? null : {
                             rejected: root.classList.contains('rejected'),
+                            lies: root.classList.contains('lies') || !!root.querySelector('.lies'),
                             text: root.innerText?.trim() || ''
                         };
                     };
+                    const liesText = document.body.innerText.match(/lies \(\d+\)/)?.[0] || null;
                     const rating = selector => Number(
                         (document.querySelector(selector)?.textContent || '')
                             .match(/(\d+)%/)?.[1]
                     );
                     return {
-                        screen: section('Screen'),
-                        cssMedia: section('CSS Media Queries'),
-                        css: section('CSS'),
-                        fonts: section('Fonts'),
-                        speech: section('Speech'),
-                        dimensions: {
-                            screenWidth: screen.width,
-                            screenHeight: screen.height,
-                            availWidth: screen.availWidth,
-                            availHeight: screen.availHeight,
-                            outerWidth,
-                            outerHeight,
-                            innerWidth,
-                            innerHeight
-                        },
+                        canvas: section('Canvas 2d'),
+                        domRect: section('DOMRect'),
+                        svg: section('SVGRect'),
+                        resistance: section('Resistance'),
+                        math: section('Math'),
+                        engineErrors: section('Error'),
+                        status: section('Status'),
+                        prototypeLies: liesText,
                         headless: rating('.headless-rating'),
                         likeHeadless: rating('.like-headless-rating'),
                         stealth: rating('.stealth-rating')
@@ -74,10 +61,10 @@ async fn main() -> Result<()> {
             .await?
             .into_value()?;
 
-        if report["screen"]["text"]
+        if report["canvas"]["text"]
             .as_str()
             .is_some_and(|text| !text.is_empty())
-            && report["cssMedia"]["text"]
+            && report["status"]["text"]
                 .as_str()
                 .is_some_and(|text| !text.is_empty())
             && report["headless"].as_u64().is_some()
@@ -85,11 +72,12 @@ async fn main() -> Result<()> {
             break report;
         }
         if Instant::now() >= deadline {
-            bail!("timed out waiting for CreepJS device-environment results");
+            bail!("timed out waiting for remaining CreepJS results");
         }
         sleep(Duration::from_millis(500)).await;
     };
 
+    println!("Chromium: {version}");
     println!("{}", serde_json::to_string_pretty(&report)?);
     browser.close().await?;
     Ok(())
