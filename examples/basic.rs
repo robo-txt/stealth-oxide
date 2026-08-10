@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::StealthConfig;
+use stealth_oxide::{PlatformProfile, StealthConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,7 +19,9 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::recommended().apply(&page).await?;
+    let report = StealthConfig::for_platform(PlatformProfile::Linux)
+        .apply(&page)
+        .await?;
     page.goto("https://example.com").await?;
 
     println!(

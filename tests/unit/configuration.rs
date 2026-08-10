@@ -58,7 +58,7 @@ fn apply_report_defaults_to_no_operations() {
 
 #[test]
 fn patch_plan_order_is_deterministic() {
-    let config = StealthConfig::recommended();
+    let config = StealthConfig::for_platform(PlatformProfile::Linux);
     let patches = config
         .plan()
         .operations()

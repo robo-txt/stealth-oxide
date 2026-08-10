@@ -8,7 +8,7 @@ Chrome DevTools Protocol before site scripts run.
 taking over the browser lifecycle:
 
 - Start with a coherent Linux, macOS, or Windows desktop profile.
-- Apply all recommended patches or enable them individually.
+- Apply every patch from the selected preset or enable patches individually.
 - Preserve native Chromium values where emulation would be less accurate.
 - Validate locale, timezone, identity, screen, media, and touch consistency
   before sending CDP commands.
@@ -80,7 +80,7 @@ the profile, and only then navigate to the destination:
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::StealthConfig;
+use stealth_oxide::{PlatformProfile, StealthConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -97,7 +97,9 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::recommended().apply(&page).await?;
+    let report = StealthConfig::for_platform(PlatformProfile::Linux)
+        .apply(&page)
+        .await?;
     page.goto("https://example.com").await?;
 
     println!("applied patches: {:?}", report.applied());
@@ -106,9 +108,9 @@ async fn main() -> Result<()> {
 }
 ```
 
-`recommended()` selects the platform matching the Rust target. A preset
-describes the requested browser identity; it cannot transform the underlying
-operating system, GPU, fonts, voices, or platform-only browser features.
+Platform selection is always explicit: choose `Linux`, `MacOS`, or `Windows`.
+A preset describes the requested browser identity; it cannot transform the
+underlying operating system, GPU, fonts, voices, or platform-only features.
 
 ## Granular control
 
@@ -116,9 +118,9 @@ Every patch can use an override, preserve Chromium's native value, or be
 disabled:
 
 ```rust
-use stealth_oxide::{Patch, PatchState, StealthConfig};
+use stealth_oxide::{Patch, PatchState, PlatformProfile, StealthConfig};
 
-let config = StealthConfig::recommended()
+let config = StealthConfig::for_platform(PlatformProfile::Windows)
     .disable(Patch::Screen)
     .use_native(Patch::Touch)
     .timezone("America/Toronto")
@@ -138,6 +140,42 @@ Available patches are:
 - `MediaFeatures`: color scheme, reduced motion, forced colors, color gamut,
   and monochrome depth
 - `Touch`: touch enablement and maximum touch points
+
+### Override reference
+
+All configuration overrides are builder methods on `StealthConfig`:
+
+| Area | Override methods |
+| --- | --- |
+| Complete identity | `identity`, `identity_patch` |
+| User agent and Client Hints | `user_agent`, `client_hints` |
+| Navigator | `navigator_platform`, `languages` |
+| Locale | `locale`, `locale_patch` |
+| Timezone | `timezone`, `timezone_patch` |
+| Screen | `screen`, `screen_patch`, `screen_size`, `device_scale_factor` |
+| Media features | `media_features`, `media_features_patch`, `color_scheme`, `reduced_motion`, `forced_colors`, `color_gamut` |
+| Touch | `touch`, `touch_patch` |
+| Validation behavior | `consistency_policy` |
+
+The complete `MediaFeaturesConfig` also exposes `monochrome`, and
+`ScreenConfig` can be supplied when the complete typed screen value is needed.
+For any patch, `enable`, `disable`, and `use_native` control whether the
+selected preset value is overridden, omitted, or preserved from Chromium.
+
+For reusable custom profiles, `BrowserProfileBuilder` supports every modeled
+profile field:
+
+| Area | Profile builder methods |
+| --- | --- |
+| Metadata | `name` |
+| Identity | `user_agent`, `navigator_platform`, `client_hints`, `languages` |
+| Locale and timezone | `locale`, `timezone` |
+| Screen | `screen`, `available_screen`, `device_scale_factor` |
+| Media features | `color_scheme`, `reduced_motion`, `forced_colors`, `color_gamut`, `monochrome` |
+| Touch | `touch` |
+
+Call `build()` to validate the customized profile, then pass it to
+`StealthConfig::from_profile`.
 
 Start with no patches and opt in explicitly:
 
@@ -205,7 +243,7 @@ Chromiumoxide. `stealth-oxide` never receives or stores them.
 use chromiumoxide::auth::Credentials;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::StealthConfig;
+use stealth_oxide::{PlatformProfile, StealthConfig};
 
 # async fn example() -> anyhow::Result<()> {
 let config = BrowserConfig::builder()
@@ -227,7 +265,9 @@ page.authenticate(Credentials {
     password: "password".into(),
 })
 .await?;
-StealthConfig::recommended().apply(&page).await?;
+StealthConfig::for_platform(PlatformProfile::Linux)
+    .apply(&page)
+    .await?;
 page.goto("https://example.com").await?;
 browser.close().await?;
 # Ok(())

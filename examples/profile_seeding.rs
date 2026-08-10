@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::{CookieSeed, ProfileSeed, StealthConfig, apply_profile_seeds};
+use stealth_oxide::{CookieSeed, PlatformProfile, ProfileSeed, StealthConfig, apply_profile_seeds};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,7 +19,9 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    StealthConfig::recommended().apply(&page).await?;
+    StealthConfig::for_platform(PlatformProfile::Linux)
+        .apply(&page)
+        .await?;
 
     let seeds = [ProfileSeed::new().cookie(
         CookieSeed::new("example-session", "demo", "https://example.com/")
