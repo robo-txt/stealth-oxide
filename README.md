@@ -29,13 +29,13 @@ full-resolution PNG.
   </tr>
   <tr>
     <td>
-      <a href="docs/images/creepjs-full-page.png">
-        <img src="docs/images/creepjs-full-page.png" alt="Full-page CreepJS report captured with stealth-oxide" width="420">
+      <a href="https://github.com/robo-txt/stealth-oxide/blob/main/docs/images/creepjs-full-page.png">
+        <img src="https://raw.githubusercontent.com/robo-txt/stealth-oxide/main/docs/images/creepjs-full-page.png" alt="Full-page CreepJS report captured with stealth-oxide" width="420">
       </a>
     </td>
     <td>
-      <a href="docs/images/sannysoft-full-page.png">
-        <img src="docs/images/sannysoft-full-page.png" alt="Full-page Sannysoft report captured with stealth-oxide" width="420">
+      <a href="https://github.com/robo-txt/stealth-oxide/blob/main/docs/images/sannysoft-full-page.png">
+        <img src="https://raw.githubusercontent.com/robo-txt/stealth-oxide/main/docs/images/sannysoft-full-page.png" alt="Full-page Sannysoft report captured with stealth-oxide" width="420">
       </a>
     </td>
   </tr>
