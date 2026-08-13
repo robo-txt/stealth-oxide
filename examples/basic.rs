@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
@@ -19,15 +21,20 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::for_platform(PlatformProfile::Linux)
+    let report = StealthConfig::for_platform(PlatformProfile::Windows)
         .apply(&page)
         .await?;
-    page.goto("https://example.com").await?;
 
-    println!(
-        "page title: {}",
-        page.get_title().await?.unwrap_or_default()
-    );
+    let navigation_started = Instant::now();
+    page.goto("https://www.example.com").await?;
+    let navigation_time = navigation_started.elapsed();
+
+    let title = page.get_title().await?.unwrap_or_default();
+    let content_size = page.content().await?.len();
+
+    println!("page title: {title}");
+    println!("content size: {content_size} bytes");
+    println!("navigation time: {navigation_time:.2?}");
     println!("applied patches: {:?}", report.applied());
     browser.close().await?;
     Ok(())
