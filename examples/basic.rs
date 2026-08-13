@@ -5,6 +5,8 @@ use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use stealth_oxide::{PlatformProfile, StealthConfig};
 
+const TARGET_URL: &str = "https://example.com";
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let browser_config = BrowserConfig::builder()
@@ -26,7 +28,7 @@ async fn main() -> Result<()> {
         .await?;
 
     let navigation_started = Instant::now();
-    page.goto("https://www.example.com").await?;
+    page.goto(TARGET_URL).await?;
     let navigation_time = navigation_started.elapsed();
 
     let title = page.get_title().await?.unwrap_or_default();

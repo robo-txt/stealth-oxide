@@ -26,5 +26,6 @@ pub fn chrome_windows() -> BrowserProfile {
         screen: desktop_screen(),
         device_environment: desktop_environment(),
         locale: us_eastern_locale(),
+        version: Some(ProfileVersion::built_in()),
     }
 }

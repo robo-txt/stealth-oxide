@@ -27,5 +27,6 @@ pub fn chrome_macos() -> BrowserProfile {
         screen: desktop_screen(),
         device_environment: desktop_environment(),
         locale: us_eastern_locale(),
+        version: Some(ProfileVersion::built_in()),
     }
 }

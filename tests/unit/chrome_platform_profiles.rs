@@ -1,10 +1,20 @@
 use std::collections::HashSet;
 
-use stealth_oxide::profiles::BrowserProfile;
 use stealth_oxide::profiles::chrome_linux::chrome_linux;
 use stealth_oxide::profiles::chrome_macos::chrome_macos;
+use stealth_oxide::profiles::{
+    BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION, BrowserProfile, BrowserProfileBuilder,
+    ProfileVersion,
+};
 
 fn assert_common_desktop_invariants(profile: BrowserProfile) {
+    assert_eq!(
+        profile.version(),
+        Some(&ProfileVersion::new(
+            BUILT_IN_CHROME_MAJOR,
+            BUILT_IN_CHROME_VERSION
+        ))
+    );
     let hints = profile
         .navigator()
         .client_hints
@@ -46,6 +56,23 @@ fn assert_common_desktop_invariants(profile: BrowserProfile) {
     assert!(profile.screen().available_height < profile.screen().height);
     assert!(!profile.device_environment().touch_enabled);
     assert_eq!(profile.device_environment().max_touch_points, 0);
+}
+
+#[test]
+fn identity_customization_clears_stale_version_metadata() {
+    let profile = BrowserProfileBuilder::new(chrome_linux())
+        .user_agent("custom browser")
+        .build();
+
+    // The identity is intentionally inconsistent and validation rejects it,
+    // but the builder must clear metadata before that validation boundary.
+    assert!(profile.is_err());
+
+    let profile = BrowserProfileBuilder::new(chrome_linux())
+        .version(None)
+        .build()
+        .expect("clearing metadata alone keeps the profile coherent");
+    assert_eq!(profile.version(), None);
 }
 
 #[test]

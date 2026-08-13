@@ -2,6 +2,8 @@
 /skills/
 /AGENTS.md
 /docs/*
+!/docs/compatibility.md
+!/docs/releasing.md
 !/docs/images/
 /docs/images/*
 !/docs/images/creepjs-full-page.png
