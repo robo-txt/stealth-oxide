@@ -26,5 +26,6 @@ pub fn chrome_linux() -> BrowserProfile {
         screen: super::desktop_screen(),
         device_environment: super::desktop_environment(),
         locale: super::us_eastern_locale(),
+        version: Some(ProfileVersion::built_in()),
     }
 }

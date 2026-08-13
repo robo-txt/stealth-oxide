@@ -60,6 +60,38 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 Rust 1.86 or newer is required by the resolved Chromiumoxide dependency graph.
 
+## Compatibility
+
+The built-in profiles model Google Chrome 151.0.7922.71. Linux is the only
+host with required real-browser CI coverage; Windows and macOS profiles model
+browser-visible values but are not yet exercised on native CI runners. See the
+[compatibility policy](docs/compatibility.md) for the complete Rust,
+Chromiumoxide, Chromium, and host-platform support matrix.
+
+Applications can compare a built-in profile with the product string returned
+by CDP `Browser.getVersion` without giving this crate control of the browser
+lifecycle:
+
+```rust
+use stealth_oxide::{
+    CompatibilityStatus, PlatformProfile, compare_browser_versions,
+};
+
+let profile = PlatformProfile::Windows.profile();
+let status = compare_browser_versions(
+    profile.version(),
+    "Chrome/151.0.7922.71",
+);
+
+assert_eq!(
+    status,
+    CompatibilityStatus::Compatible { chrome_major: 151 }
+);
+```
+
+A customized user agent or Client Hint set clears inherited version metadata
+unless the builder is given replacement metadata explicitly.
+
 Profile seeding is optional and disabled by default. Enable it explicitly only
 when an application needs reproducible test cookies or origin storage:
 
@@ -357,3 +389,5 @@ working Chromium process and, for desktop tests, the container environment.
 - Successful navigation does not establish a favorable classification by a
   third-party fraud or bot-management service.
 - Only test sites and proxies you are authorized to use.
+- Error display strings are human-readable and are not a stable machine
+  interface; match typed error variants instead.

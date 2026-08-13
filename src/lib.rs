@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+/// Browser runtime and profile-version compatibility inspection.
+pub mod compatibility;
 mod config;
 /// Read-only environment observations and consistency checks.
 pub mod environment;
@@ -22,6 +24,7 @@ mod validation;
 
 use chromiumoxide::Page;
 
+pub use compatibility::{CompatibilityStatus, compare_browser_versions};
 pub use config::{
     ApplyReport, ConsistencyPolicy, Patch, PatchMode, PatchPlan, PatchState, PlatformProfile,
     StealthConfig,
@@ -35,8 +38,9 @@ pub use network::{
     FailureCategory, classify_failure, increment_failure_count, sanitize_error_name,
 };
 pub use profiles::{
-    BrowserProfile, BrowserProfileBuilder, ColorGamut, ColorScheme, ForcedColors, IdentityConfig,
-    MediaFeaturesConfig, ReducedMotion, ScreenConfig, TouchConfig,
+    BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION, BrowserProfile, BrowserProfileBuilder,
+    ColorGamut, ColorScheme, ForcedColors, IdentityConfig, MediaFeaturesConfig, ProfileVersion,
+    ReducedMotion, ScreenConfig, TouchConfig,
 };
 #[cfg(feature = "seeding")]
 pub use seeding::{

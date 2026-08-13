@@ -5,8 +5,13 @@ pub mod chrome_macos;
 /// Built-in Windows Chrome profile.
 pub mod chrome_windows;
 
-pub(crate) const CHROME_VERSION: &str = "151.0.7922.71";
-pub(crate) const CHROME_MAJOR: &str = "151";
+/// Full Chrome version modeled by the built-in profiles.
+pub const BUILT_IN_CHROME_VERSION: &str = "151.0.7922.71";
+/// Chrome major version modeled by the built-in profiles.
+pub const BUILT_IN_CHROME_MAJOR: u32 = 151;
+
+const CHROME_VERSION: &str = BUILT_IN_CHROME_VERSION;
+const CHROME_MAJOR: &str = "151";
 
 pub(crate) fn chrome_brands(full: bool) -> Vec<BrandVersion> {
     let chrome_version = if full { CHROME_VERSION } else { CHROME_MAJOR };
@@ -69,6 +74,8 @@ pub struct BrowserProfile {
     pub(crate) device_environment: DeviceEnvironmentProfile,
     /// Locale and timezone values.
     pub(crate) locale: LocaleProfile,
+    /// Browser version represented by this profile, when known.
+    pub(crate) version: Option<ProfileVersion>,
 }
 
 impl BrowserProfile {
@@ -95,6 +102,40 @@ impl BrowserProfile {
     /// Locale and timezone defaults.
     pub fn locale(&self) -> &LocaleProfile {
         &self.locale
+    }
+
+    /// Browser version represented by this profile.
+    ///
+    /// Built-in profiles always provide this metadata. A customized profile
+    /// returns `None` after its user agent or Client Hints are replaced unless
+    /// the caller supplies updated metadata through [`BrowserProfileBuilder`].
+    pub const fn version(&self) -> Option<&ProfileVersion> {
+        self.version.as_ref()
+    }
+}
+
+/// Chrome version metadata attached to a browser profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ProfileVersion {
+    /// Chrome major version.
+    pub chrome_major: u32,
+    /// Full dotted Chrome version.
+    pub chrome_version: String,
+}
+
+impl ProfileVersion {
+    /// Creates explicit profile version metadata.
+    pub fn new(chrome_major: u32, chrome_version: impl Into<String>) -> Self {
+        Self {
+            chrome_major,
+            chrome_version: chrome_version.into(),
+        }
+    }
+
+    /// Version metadata used by all built-in profiles.
+    pub fn built_in() -> Self {
+        Self::new(BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION)
     }
 }
 
@@ -455,6 +496,7 @@ impl BrowserProfileBuilder {
     /// Replaces the user-agent string.
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.profile.navigator.user_agent = user_agent.into();
+        self.profile.version = None;
         self
     }
 
@@ -467,6 +509,13 @@ impl BrowserProfileBuilder {
     /// Replaces structured UA Client Hints or removes them.
     pub fn client_hints(mut self, hints: Option<UserAgentClientHintsProfile>) -> Self {
         self.profile.navigator.client_hints = hints;
+        self.profile.version = None;
+        self
+    }
+
+    /// Supplies version metadata for a customized browser identity.
+    pub fn version(mut self, version: Option<ProfileVersion>) -> Self {
+        self.profile.version = version;
         self
     }
 
