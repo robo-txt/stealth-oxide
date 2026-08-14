@@ -11,7 +11,9 @@ use chromiumoxide::cdp::browser_protocol::network::{
 use chromiumoxide::{Browser, BrowserConfig, Page};
 use futures::StreamExt;
 use serde_json::json;
-use stealth_oxide::{NetworkAudit, PlatformProfile, StealthConfig, compare_browser_versions};
+use stealth_oxide::{
+    NetworkAudit, PlatformProfile, StealthConfig, TargetCoordinator, compare_browser_versions,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -38,17 +40,34 @@ async fn main() -> Result<()> {
     let audit = Arc::new(Mutex::new(NetworkAudit::default()));
     let collectors = start_collectors(&page, audit.clone()).await?;
     page.execute(EnableParams::default()).await?;
-    if configured {
-        StealthConfig::from_profile(profile.clone())
-            .apply(&page)
-            .await?;
-    }
+    let target_collector = if configured {
+        let stealth = StealthConfig::from_profile(profile.clone());
+        stealth.apply(&page).await?;
+        let coordinator = TargetCoordinator::new(&stealth)?;
+        let mut targets = coordinator.enable(&page).await?;
+        let target_page = page.clone();
+        Some(tokio::spawn(async move {
+            while let Some(event) = targets.next().await {
+                if let Err(error) = coordinator.apply(&target_page, &event).await {
+                    eprintln!(
+                        "target configuration failed for {}: {error}",
+                        event.target_info.r#type
+                    );
+                }
+            }
+        }))
+    } else {
+        None
+    };
 
     page.goto(&fixture_url).await?;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     for collector in collectors {
         collector.abort();
+    }
+    if let Some(target_collector) = target_collector {
+        target_collector.abort();
     }
     let audit = audit.lock().await;
     let summary = audit.summary();
@@ -176,14 +195,61 @@ fn fixture_response(path: &str, retry_count: &AtomicUsize) -> (&'static str, Str
         "/page" => (
             "200 OK",
             "Content-Type: text/html\r\nAccept-CH: Sec-CH-UA-Arch, Sec-CH-UA-Bitness\r\n".into(),
-            r#"<!doctype html><title>network fixture</title><script>
+            r#"<!doctype html><title>network fixture</title>
+<iframe src="/frame"></iframe>
+<script>
+const workerResult = new Promise((resolve, reject) => {
+  const worker = new Worker('/worker.js');
+  worker.onmessage = event => resolve(event.data);
+  worker.onerror = reject;
+});
+const sharedWorkerResult = new Promise((resolve, reject) => {
+  if (!('SharedWorker' in globalThis)) return resolve('unsupported');
+  const worker = new SharedWorker('/shared-worker.js');
+  worker.port.onmessage = event => resolve(event.data);
+  worker.onerror = reject;
+  worker.port.start();
+});
+const serviceWorkerResult = (async () => {
+  if (!('serviceWorker' in navigator)) return 'unsupported';
+  await navigator.serviceWorker.register('/service-worker.js');
+  await navigator.serviceWorker.ready;
+  return fetch('/sw-controlled').then(response => response.text());
+})();
+window.open('/popup', '_blank');
 Promise.all([
   fetch('/cache').then(() => fetch('/cache')),
   fetch('/retry'),
-  fetch('/burst?id=1'), fetch('/burst?id=2'), fetch('/burst?id=3')
+  fetch('/burst?id=1'), fetch('/burst?id=2'), fetch('/burst?id=3'),
+  workerResult, sharedWorkerResult, serviceWorkerResult
 ]).then(() => { document.title = 'fixture-complete' })
 </script>"#
                 .into(),
+        ),
+        "/frame" => (
+            "200 OK",
+            "Content-Type: text/html\r\n".into(),
+            "<!doctype html><title>frame</title><script>fetch('/frame-resource')</script>".into(),
+        ),
+        "/popup" => (
+            "200 OK",
+            "Content-Type: text/html\r\n".into(),
+            "<!doctype html><title>popup</title><script>fetch('/popup-resource')</script>".into(),
+        ),
+        "/worker.js" => (
+            "200 OK",
+            "Content-Type: text/javascript\r\n".into(),
+            "fetch('/worker-resource').then(() => postMessage('done'))".into(),
+        ),
+        "/shared-worker.js" => (
+            "200 OK",
+            "Content-Type: text/javascript\r\n".into(),
+            "onconnect = event => { const port = event.ports[0]; fetch('/shared-worker-resource').then(() => port.postMessage('done')); }".into(),
+        ),
+        "/service-worker.js" => (
+            "200 OK",
+            "Content-Type: text/javascript\r\nService-Worker-Allowed: /\r\nCache-Control: no-store\r\n".into(),
+            "self.addEventListener('install', event => { self.skipWaiting(); event.waitUntil(fetch('/sw-install')); }); self.addEventListener('activate', event => event.waitUntil(self.clients.claim())); self.addEventListener('fetch', event => { if (new URL(event.request.url).pathname === '/sw-controlled') event.respondWith(new Response('service-worker', { headers: { 'Content-Type': 'text/plain' } })); });".into(),
         ),
         "/cache" => (
             "200 OK",

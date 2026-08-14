@@ -166,9 +166,13 @@ underlying operating system, GPU, fonts, voices, or platform-only features.
 ### New target coverage
 
 CDP emulation is target-scoped. Enable `TargetCoordinator` before navigation
-when the destination can create workers, related iframes, or popups. The
-application must continuously drive the returned event stream; the coordinator
-does not create a hidden runtime task.
+when the destination can create dedicated or shared workers, related iframes,
+or popups. The application must continuously drive the returned event stream;
+the coordinator does not create a hidden runtime task. Service workers are
+excluded from pausing because Chromiumoxide 0.9.1 does not expose public
+arbitrary-session command routing and Chrome rejects its deprecated nested
+service-worker session path. They continue with native host values and should
+be reported as a coverage gap.
 
 ```rust,no_run
 use futures::StreamExt;
@@ -455,6 +459,8 @@ cargo run --example custom_configuration
 cargo run --example custom_profile
 cargo run --example network_baseline
 cargo run --example network_baseline -- --configured
+cargo run --example site_evaluation -- \
+  --url https://example.com/ --expect "Example Domain"
 cargo run --features seeding --example profile_seeding
 docker compose run --rm stealth-oxide cargo run --example creepjs_screenshot
 docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
@@ -466,6 +472,9 @@ docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
 - `network_baseline`: capture a stock-Chrome baseline against a controlled local
   redirect/cache/Client-Hint/concurrency fixture; add `--configured` to capture
   the library-configured comparison using the same observer and fixture.
+- `site_evaluation`: run a content-asserted, runtime/profile-compatible browser
+  observation for an origin the operator is authorized to test. It refuses a
+  mismatched Chrome major and reports challenge evidence as structured JSON.
 - `profile_seeding`: install repeatable test state with the optional `seeding`
   feature.
 - `creepjs_screenshot` and `sannysoft_screenshot`: reproduce the full-page
@@ -494,6 +503,13 @@ nothing. Passing an empty slice is also a no-op.
 
 CreepJS probes live under `tests/` as ignored browser diagnostics. See
 [`tests/README.md`](tests/README.md) for the container commands.
+
+Authorized protected-site evaluations are tracked separately in the
+[`site evaluation matrix`](docs/site-evaluation-matrix.md). The matrix records
+the tested commit, browser/runtime environment, repeated outcomes, and redacted
+evidence. It deliberately distinguishes destination-content verification from
+fingerprint-only diagnostics and does not treat an HTTP `200` as proof that a
+challenge was passed.
 
 ## Container development
 

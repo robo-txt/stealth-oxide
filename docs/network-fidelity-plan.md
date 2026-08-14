@@ -117,6 +117,13 @@ Apply UA, Client Hint metadata, platform, locale, timezone, and fallback
 language configuration before target execution, then resume the target.
 Avoid pausing ordinary network requests.
 
+Current limitation: Chromiumoxide 0.9.1 cannot publicly route commands to an
+arbitrary flattened CDP session. Chrome rejects its deprecated nested-session
+path for service-worker targets, so the coordinator deliberately excludes
+service workers rather than pausing and breaking them. Service-worker identity
+remains a reported coverage gap until the browser client exposes safe session
+routing.
+
 ### 5. Validate UA Client Hints against the runtime
 
 - Compare the configured UA and metadata with the installed Chrome version.
@@ -224,6 +231,15 @@ Publish a matrix that separates:
 - modeled but not native behavior;
 - behavior observable only at the server or wire layer;
 - unsupported or environment-dependent behavior.
+
+Protected-site outcomes and fingerprint-only diagnostics are tracked in the
+[site evaluation matrix](site-evaluation-matrix.md). Entries must identify the
+tested commit and runtime, use repeated application-content assertions, and be
+marked stale after material browser, profile, or target changes.
+
+The `site_evaluation` example enforces same-major runtime/profile compatibility,
+uses the host-matching Linux profile, requires destination-content evidence,
+and emits structured challenge observations for authorized test origins.
 
 ## Initial delivery order
 

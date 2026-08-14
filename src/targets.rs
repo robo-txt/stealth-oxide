@@ -10,7 +10,7 @@ use chromiumoxide::cdp::browser_protocol::emulation::{
     SetLocaleOverrideParams, SetTimezoneOverrideParams, SetUserAgentOverrideParams,
 };
 use chromiumoxide::cdp::browser_protocol::target::{
-    EventAttachedToTarget, SessionId, SetAutoAttachParams,
+    EventAttachedToTarget, FilterEntry, SessionId, SetAutoAttachParams, TargetFilter,
 };
 use chromiumoxide::cdp::js_protocol::runtime::RunIfWaitingForDebuggerParams;
 use chromiumoxide::listeners::EventStream;
@@ -107,6 +107,13 @@ impl TargetCoordinator {
             .auto_attach(true)
             .wait_for_debugger_on_start(true)
             .flatten(false)
+            .filter(TargetFilter::new(vec![
+                FilterEntry::builder()
+                    .r#type("service_worker")
+                    .exclude(true)
+                    .build(),
+                FilterEntry::default(),
+            ]))
             .build()
             .map_err(|message| Error::invalid_parameters("target auto-attach", message))?;
         page.execute(params)
@@ -139,7 +146,7 @@ impl TargetCoordinator {
         let target_type = event.target_info.r#type.clone();
         let supported = matches!(
             target_type.as_str(),
-            "page" | "iframe" | "worker" | "shared_worker" | "service_worker"
+            "page" | "iframe" | "worker" | "shared_worker"
         );
         let mut next_id = 1_u64;
         let mut applied_commands = 0;
