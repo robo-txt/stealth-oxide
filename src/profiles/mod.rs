@@ -6,12 +6,12 @@ pub mod chrome_macos;
 pub mod chrome_windows;
 
 /// Full Chrome version modeled by the built-in profiles.
-pub const BUILT_IN_CHROME_VERSION: &str = "151.0.7922.71";
+pub const BUILT_IN_CHROME_VERSION: &str = "150.0.7871.128";
 /// Chrome major version modeled by the built-in profiles.
-pub const BUILT_IN_CHROME_MAJOR: u32 = 151;
+pub const BUILT_IN_CHROME_MAJOR: u32 = 150;
 
 const CHROME_VERSION: &str = BUILT_IN_CHROME_VERSION;
-const CHROME_MAJOR: &str = "151";
+const CHROME_MAJOR: &str = "150";
 
 pub(crate) fn chrome_brands(full: bool) -> Vec<BrandVersion> {
     let chrome_version = if full { CHROME_VERSION } else { CHROME_MAJOR };

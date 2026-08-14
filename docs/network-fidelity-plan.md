@@ -75,7 +75,7 @@ responses with these constraints:
 
 ### 2. Build a controlled Chrome baseline harness
 
-Create a controlled HTTPS test origin and compare unmodified Chrome 151 with
+Create a controlled HTTPS test origin and compare unmodified Chrome 150 with
 each stealth-oxide profile across:
 
 - first navigation;
@@ -211,7 +211,7 @@ Run:
 - unit tests for configuration, validation, redaction, correlation, and retry
   eligibility;
 - real-browser tests for pages, iframes, popups, and all worker types;
-- controlled-origin comparison against unmodified Chrome 151;
+- controlled-origin comparison against unmodified Chrome 150;
 - first-request and post-`Accept-CH` comparisons;
 - direct, CONNECT, SOCKS, and TLS-terminating proxy diagnostics;
 - HTTP/1.1, HTTP/2, and HTTP/3 tests where supported;

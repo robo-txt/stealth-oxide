@@ -62,7 +62,7 @@ Rust 1.86 or newer is required by the resolved Chromiumoxide dependency graph.
 
 ## Compatibility
 
-The built-in profiles model Google Chrome 151.0.7922.71. Linux is the only
+The built-in profiles model Google Chrome 150.0.7871.128. Linux is the only
 host with required real-browser CI coverage; Windows and macOS profiles model
 browser-visible values but are not yet exercised on native CI runners. See the
 [compatibility policy](docs/compatibility.md) for the complete Rust,
@@ -80,12 +80,12 @@ use stealth_oxide::{
 let profile = PlatformProfile::Windows.profile();
 let status = compare_browser_versions(
     profile.version(),
-    "Chrome/151.0.7922.71",
+    "Chrome/150.0.7871.128",
 );
 
 assert_eq!(
     status,
-    CompatibilityStatus::Compatible { chrome_major: 151 }
+    CompatibilityStatus::Compatible { chrome_major: 150 }
 );
 ```
 
@@ -194,7 +194,7 @@ page.goto("https://example.com").await?;
 # }
 ```
 
-Chrome 151 accepts worker-target UA, language, locale, timezone, and Client Hint
+Chrome 150 accepts worker-target UA, language, locale, timezone, and Client Hint
 overrides, but it preserves the host value of `WorkerNavigator.platform`. A
 Windows profile running on Linux therefore remains detectably hybrid even with
 target coordination. Use the Linux profile on Linux or a native Windows browser
@@ -453,6 +453,8 @@ Each example focuses on one public workflow:
 cargo run --example basic
 cargo run --example custom_configuration
 cargo run --example custom_profile
+cargo run --example network_baseline
+cargo run --example network_baseline -- --configured
 cargo run --features seeding --example profile_seeding
 docker compose run --rm stealth-oxide cargo run --example creepjs_screenshot
 docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
@@ -461,6 +463,9 @@ docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
 - `basic`: launch Chromium, apply the recommended profile, and navigate.
 - `custom_configuration`: select native, disabled, and overridden patches.
 - `custom_profile`: build and apply a typed Windows desktop profile.
+- `network_baseline`: capture a stock-Chrome baseline against a controlled local
+  redirect/cache/Client-Hint/concurrency fixture; add `--configured` to capture
+  the library-configured comparison using the same observer and fixture.
 - `profile_seeding`: install repeatable test state with the optional `seeding`
   feature.
 - `creepjs_screenshot` and `sannysoft_screenshot`: reproduce the full-page

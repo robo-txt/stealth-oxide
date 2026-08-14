@@ -37,7 +37,7 @@ fn assert_common_desktop_invariants(profile: BrowserProfile) {
         hints
             .brands
             .iter()
-            .all(|brand| brand.version == "151" || brand.brand == "Not.A/Brand")
+            .all(|brand| brand.version == "150" || brand.brand == "Not.A/Brand")
     );
     assert!(
         hints
