@@ -1,6 +1,6 @@
 //! Passive, redacted Chromium network diagnostics and failure classification.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use chromiumoxide::cdp::browser_protocol::network::{
     EventLoadingFailed, EventLoadingFinished, EventRequestServedFromCache, EventRequestWillBeSent,
@@ -86,8 +86,99 @@ pub fn validate_request_identity(
                 message: "the transmitted request did not expose Client Hint brands",
             }),
         }
+        check_quoted_hint(
+            headers,
+            "sec-ch-ua-arch",
+            &client_hints.architecture,
+            "request-client-hint-architecture-mismatch",
+            "the transmitted Client Hint architecture differs from the configured identity",
+            &mut findings,
+        );
+        check_quoted_hint(
+            headers,
+            "sec-ch-ua-bitness",
+            &client_hints.bitness,
+            "request-client-hint-bitness-mismatch",
+            "the transmitted Client Hint bitness differs from the configured identity",
+            &mut findings,
+        );
+        check_quoted_hint(
+            headers,
+            "sec-ch-ua-model",
+            &client_hints.model,
+            "request-client-hint-model-mismatch",
+            "the transmitted Client Hint model differs from the configured identity",
+            &mut findings,
+        );
+        check_quoted_hint(
+            headers,
+            "sec-ch-ua-platform-version",
+            &client_hints.platform_version,
+            "request-client-hint-platform-version-mismatch",
+            "the transmitted Client Hint platform version differs from the configured identity",
+            &mut findings,
+        );
+        if headers
+            .get("sec-ch-ua-full-version-list")
+            .is_some_and(|value| {
+                !client_hints.full_version_list.iter().all(|brand| {
+                    value.contains(&format!("\"{}\"", brand.brand))
+                        && value.contains(&format!("v=\"{}\"", brand.version))
+                })
+            })
+        {
+            findings.push(Finding {
+                severity: FindingSeverity::Contradiction,
+                code: "request-client-hint-full-version-list-mismatch",
+                message: "the transmitted full-version Client Hint brands differ from the configured identity",
+            });
+        }
+        if headers.get("sec-ch-ua-form-factors").is_some_and(|value| {
+            client_hints.form_factors.as_ref().is_some_and(|expected| {
+                !expected
+                    .iter()
+                    .all(|factor| value.contains(&format!("\"{factor}\"")))
+            })
+        }) {
+            findings.push(Finding {
+                severity: FindingSeverity::Contradiction,
+                code: "request-client-hint-form-factors-mismatch",
+                message: "the transmitted Client Hint form factors differ from the configured identity",
+            });
+        }
+        if headers.get("sec-ch-ua-wow64").is_some_and(|value| {
+            client_hints
+                .wow64
+                .is_some_and(|expected| value != if expected { "?1" } else { "?0" })
+        }) {
+            findings.push(Finding {
+                severity: FindingSeverity::Contradiction,
+                code: "request-client-hint-wow64-mismatch",
+                message: "the transmitted Client Hint WOW64 value differs from the configured identity",
+            });
+        }
     }
     findings
+}
+
+fn check_quoted_hint(
+    headers: &BTreeMap<String, String>,
+    name: &str,
+    expected: &str,
+    code: &'static str,
+    message: &'static str,
+    findings: &mut Vec<Finding>,
+) {
+    if headers
+        .get(name)
+        .is_some_and(|value| value != &format!("\"{expected}\""))
+    {
+        findings.push(Finding {
+            severity: FindingSeverity::Contradiction,
+            code,
+            message,
+        });
+    }
 }
 
 fn language_tags(value: &str) -> Vec<String> {
@@ -96,6 +187,66 @@ fn language_tags(value: &str) -> Vec<String> {
         .map(|item| item.split(';').next().unwrap_or(item).trim().to_string())
         .filter(|item| !item.is_empty())
         .collect()
+}
+
+/// Evaluates high-entropy Client Hint delivery against opt-ins observed earlier
+/// in the same audit window.
+///
+/// Unexplained delivery is a warning rather than a contradiction because Chrome
+/// can persist Client Hint preferences in a reused browser profile before the
+/// audit begins.
+pub fn validate_client_hint_negotiation(audit: &NetworkAudit) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for request in audit.requests() {
+        if request.request_identity_headers.is_empty() {
+            if !request.eligible_high_entropy_hints.is_empty() {
+                push_unique_finding(
+                    &mut findings,
+                    Finding {
+                        severity: FindingSeverity::Info,
+                        code: "client-hint-request-headers-unobserved",
+                        message: "request extra-info was unavailable for Client Hint negotiation validation",
+                    },
+                );
+            }
+            continue;
+        }
+        for hint in request
+            .sent_high_entropy_hints
+            .difference(&request.eligible_high_entropy_hints)
+        {
+            let _ = hint;
+            push_unique_finding(
+                &mut findings,
+                Finding {
+                    severity: FindingSeverity::Warning,
+                    code: "high-entropy-client-hint-without-observed-opt-in",
+                    message: "a high-entropy Client Hint was sent without an opt-in observed earlier in this audit",
+                },
+            );
+        }
+        for hint in request
+            .eligible_high_entropy_hints
+            .difference(&request.sent_high_entropy_hints)
+        {
+            let _ = hint;
+            push_unique_finding(
+                &mut findings,
+                Finding {
+                    severity: FindingSeverity::Warning,
+                    code: "opted-in-client-hint-not-observed",
+                    message: "a previously opted-in high-entropy Client Hint was not observed on a later request",
+                },
+            );
+        }
+    }
+    findings
+}
+
+fn push_unique_finding(findings: &mut Vec<Finding>, finding: Finding) {
+    if !findings.iter().any(|item| item.code == finding.code) {
+        findings.push(finding);
+    }
 }
 
 /// A redacted response observed before a redirect was followed.
@@ -149,6 +300,12 @@ pub struct NetworkRequestAudit {
     pub response_headers: BTreeMap<String, String>,
     /// Ordered allowlisted request identity header sets from extra-info events.
     pub request_identity_headers: Vec<BTreeMap<String, String>>,
+    /// High-entropy hints allowed by an `Accept-CH` observed before this request.
+    pub eligible_high_entropy_hints: BTreeSet<String>,
+    /// High-entropy hint header names Chrome transmitted on this request.
+    pub sent_high_entropy_hints: BTreeSet<String>,
+    /// Client Hint tokens requested by this response, including low-entropy tokens.
+    pub response_accept_ch: BTreeSet<String>,
     /// Encoded bytes Chromium reported when loading completed.
     pub encoded_data_length: Option<f64>,
     /// Broad failure family, when loading failed.
@@ -179,6 +336,9 @@ impl NetworkRequestAudit {
             connection_reused: None,
             response_headers: BTreeMap::new(),
             request_identity_headers: Vec::new(),
+            eligible_high_entropy_hints: BTreeSet::new(),
+            sent_high_entropy_hints: BTreeSet::new(),
+            response_accept_ch: BTreeSet::new(),
             encoded_data_length: None,
             failure_category: None,
             failure_name: None,
@@ -216,6 +376,7 @@ pub struct NetworkAudit {
     main_frame_id: Option<String>,
     order: VecDeque<String>,
     requests: BTreeMap<String, NetworkRequestAudit>,
+    accepted_client_hints: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Default for NetworkAudit {
@@ -233,6 +394,7 @@ impl NetworkAudit {
             main_frame_id: None,
             order: VecDeque::new(),
             requests: BTreeMap::new(),
+            accepted_client_hints: BTreeMap::new(),
         }
     }
 
@@ -273,6 +435,12 @@ impl NetworkAudit {
     pub fn observe_request_will_be_sent(&mut self, event: &EventRequestWillBeSent) {
         let request_id = event.request_id.as_ref();
         let main_frame_id = self.main_frame_id.clone();
+        if let Some(response) = &event.redirect_response {
+            self.observe_accept_ch(&response.url, &response.headers);
+        }
+        let eligible_hints = origin(&event.request.url)
+            .and_then(|origin| self.accepted_client_hints.get(&origin).cloned())
+            .unwrap_or_default();
         let request = self.entry(request_id);
         if let Some(response) = &event.redirect_response {
             push_bounded(&mut request.redirects, redirect_hop(response));
@@ -280,6 +448,10 @@ impl NetworkAudit {
             request.status = None;
         }
         request.url = Some(url(&event.request.url));
+        request.eligible_high_entropy_hints = eligible_hints
+            .into_iter()
+            .filter(|hint| is_high_entropy_hint(hint))
+            .collect();
         request.method = Some(bounded(&event.request.method));
         request.loader_id = Some(bounded(event.loader_id.as_ref()));
         request.resource_type = event
@@ -302,29 +474,45 @@ impl NetworkAudit {
     /// Observes request headers actually supplied by Chrome's network stack.
     pub fn observe_request_extra_info(&mut self, event: &EventRequestWillBeSentExtraInfo) {
         let headers = identity_headers(&event.headers);
-        push_bounded(
-            &mut self
-                .entry(event.request_id.as_ref())
-                .request_identity_headers,
-            headers,
-        );
+        let sent_hints = headers
+            .keys()
+            .filter(|name| is_high_entropy_hint(name))
+            .cloned()
+            .collect();
+        let request = self.entry(event.request_id.as_ref());
+        request.sent_high_entropy_hints = sent_hints;
+        push_bounded(&mut request.request_identity_headers, headers);
     }
 
     /// Observes a response without reading its body.
     pub fn observe_response_received(&mut self, event: &EventResponseReceived) {
-        let request = self.entry(event.request_id.as_ref());
-        request.loader_id = Some(bounded(event.loader_id.as_ref()));
-        request.resource_type = Some(event.r#type.as_ref().to_string());
-        apply_response(request, &event.response);
+        {
+            let request = self.entry(event.request_id.as_ref());
+            request.loader_id = Some(bounded(event.loader_id.as_ref()));
+            request.resource_type = Some(event.r#type.as_ref().to_string());
+            apply_response(request, &event.response);
+            request.response_accept_ch = accept_ch_tokens(&event.response.headers);
+        }
+        self.observe_accept_ch(&event.response.url, &event.response.headers);
     }
 
     /// Observes status and allowlisted headers from network-stack extra info.
     pub fn observe_response_extra_info(&mut self, event: &EventResponseReceivedExtraInfo) {
-        let request = self.entry(event.request_id.as_ref());
-        push_bounded(&mut request.extra_statuses, event.status_code);
-        request
-            .response_headers
-            .extend(safe_headers(event.headers.inner()));
+        let response_url = {
+            let request = self.entry(event.request_id.as_ref());
+            push_bounded(&mut request.extra_statuses, event.status_code);
+            request
+                .response_headers
+                .extend(safe_headers(event.headers.inner()));
+            let accept_ch = accept_ch_tokens(&event.headers);
+            if header_value(&event.headers, "accept-ch").is_some() {
+                request.response_accept_ch = accept_ch;
+            }
+            request.url.clone()
+        };
+        if let Some(response_url) = response_url {
+            self.observe_accept_ch(&response_url, &event.headers);
+        }
     }
 
     /// Marks a lifecycle as served from Chrome's cache.
@@ -368,6 +556,70 @@ impl NetworkAudit {
         }
         self.requests.get_mut(request_id).expect("entry inserted")
     }
+
+    fn observe_accept_ch(&mut self, response_url: &str, headers: &Headers) {
+        let Some(value) = header_value(headers, "accept-ch") else {
+            return;
+        };
+        let Some(origin) = origin(response_url) else {
+            return;
+        };
+        self.accepted_client_hints
+            .insert(origin, parse_client_hint_tokens(value));
+    }
+}
+
+fn origin(value: &str) -> Option<String> {
+    let parsed = url::Url::parse(value).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = parsed.host_str()?;
+    Some(match parsed.port() {
+        Some(port) => format!("{}://{}:{port}", parsed.scheme(), host),
+        None => format!("{}://{}", parsed.scheme(), host),
+    })
+}
+
+fn header_value<'a>(headers: &'a Headers, target: &str) -> Option<&'a str> {
+    headers
+        .inner()
+        .as_object()?
+        .iter()
+        .find_map(|(name, value)| {
+            name.eq_ignore_ascii_case(target)
+                .then(|| value.as_str())
+                .flatten()
+        })
+}
+
+fn accept_ch_tokens(headers: &Headers) -> BTreeSet<String> {
+    header_value(headers, "accept-ch")
+        .map(parse_client_hint_tokens)
+        .unwrap_or_default()
+}
+
+fn parse_client_hint_tokens(value: &str) -> BTreeSet<String> {
+    value
+        .split(',')
+        .map(|token| token.trim().to_ascii_lowercase())
+        .filter(|token| token.starts_with("sec-ch-ua-") || token == "sec-ch-ua")
+        .take(MAX_COLLECTION_ITEMS)
+        .collect()
+}
+
+fn is_high_entropy_hint(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "sec-ch-ua-arch"
+            | "sec-ch-ua-bitness"
+            | "sec-ch-ua-form-factors"
+            | "sec-ch-ua-full-version"
+            | "sec-ch-ua-full-version-list"
+            | "sec-ch-ua-model"
+            | "sec-ch-ua-platform-version"
+            | "sec-ch-ua-wow64"
+    )
 }
 
 fn redirect_hop(response: &Response) -> RedirectHop {
@@ -407,6 +659,7 @@ fn identity_headers(headers: &Headers) -> BTreeMap<String, String> {
         "sec-ch-ua-model",
         "sec-ch-ua-platform",
         "sec-ch-ua-platform-version",
+        "sec-ch-ua-wow64",
         "user-agent",
     ];
     headers
@@ -709,5 +962,103 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, "request-client-hint-platform-mismatch");
         assert!(!format!("{findings:?}").contains("Other"));
+
+        request.request_identity_headers[0].insert("sec-ch-ua-platform".into(), "\"Linux\"".into());
+        request.request_identity_headers[0].insert("sec-ch-ua-arch".into(), "\"arm\"".into());
+        let findings = validate_request_identity(&request, &identity);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].code,
+            "request-client-hint-architecture-mismatch"
+        );
+    }
+
+    #[test]
+    fn validates_accept_ch_only_for_subsequent_same_origin_requests() {
+        let mut audit = NetworkAudit::new(10);
+        audit.observe_accept_ch(
+            "https://example.com/first",
+            &Headers::new(json!({
+                "Accept-CH": "Sec-CH-UA-Arch, Sec-CH-UA-Full-Version-List"
+            })),
+        );
+
+        let sent = request_event("subsequent", "https://example.com/second");
+        audit.observe_request_will_be_sent(&sent);
+        let extra = request_extra_info(
+            "subsequent",
+            json!({
+                "Sec-CH-UA-Arch": "\"x86\"",
+                "Sec-CH-UA-Full-Version-List": "\"Chromium\";v=\"151.0.0.0\""
+            }),
+        );
+        audit.observe_request_extra_info(&extra);
+
+        assert!(validate_client_hint_negotiation(&audit).is_empty());
+        let request = audit.get("subsequent").unwrap();
+        assert!(
+            request
+                .eligible_high_entropy_hints
+                .contains("sec-ch-ua-arch")
+        );
+    }
+
+    #[test]
+    fn warns_for_unexplained_hints_and_honors_accept_ch_clear() {
+        let mut audit = NetworkAudit::new(10);
+        audit.observe_accept_ch(
+            "https://example.com/",
+            &Headers::new(json!({ "Accept-CH": "Sec-CH-UA-Arch" })),
+        );
+        audit.observe_accept_ch(
+            "https://example.com/clear",
+            &Headers::new(json!({ "Accept-CH": "" })),
+        );
+        let sent = request_event("cleared", "https://example.com/next");
+        audit.observe_request_will_be_sent(&sent);
+        let extra = request_extra_info("cleared", json!({ "Sec-CH-UA-Arch": "\"x86\"" }));
+        audit.observe_request_extra_info(&extra);
+
+        let findings = validate_client_hint_negotiation(&audit);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].code,
+            "high-entropy-client-hint-without-observed-opt-in"
+        );
+    }
+
+    fn request_event(request_id: &str, request_url: &str) -> EventRequestWillBeSent {
+        serde_json::from_value(json!({
+            "requestId": request_id,
+            "loaderId": "loader",
+            "documentURL": request_url,
+            "request": {
+                "url": request_url,
+                "method": "GET",
+                "headers": {},
+                "initialPriority": "High",
+                "referrerPolicy": "strict-origin-when-cross-origin"
+            },
+            "timestamp": 1.0,
+            "wallTime": 1.0,
+            "initiator": { "type": "other" },
+            "redirectHasExtraInfo": false,
+            "type": "Document",
+            "frameId": "main"
+        }))
+        .unwrap()
+    }
+
+    fn request_extra_info(
+        request_id: &str,
+        headers: serde_json::Value,
+    ) -> EventRequestWillBeSentExtraInfo {
+        serde_json::from_value(json!({
+            "requestId": request_id,
+            "associatedCookies": [],
+            "headers": headers,
+            "connectTiming": { "requestTime": 1.0 }
+        }))
+        .unwrap()
     }
 }

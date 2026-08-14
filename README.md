@@ -214,6 +214,13 @@ because CDP does not promise their ordering around redirects. Reports omit
 bodies, cookies, authorization data, remote addresses, URL credentials, query
 strings, and fragments, and retain at most 100 request lifecycles.
 
+The audit also tracks origin-scoped `Accept-CH` observations. Call
+`validate_client_hint_negotiation(&audit)` to check whether high-entropy hints
+followed policy observed earlier in the audit. Findings are warnings rather
+than contradictions when no prior opt-in was seen, since a persistent Chrome
+profile can retain Client Hint preferences from an earlier session. The
+library observes this negotiation and never adds `Sec-CH-UA-*` headers itself.
+
 ## Granular control
 
 Every patch can use an override, preserve Chromium's native value, or be
