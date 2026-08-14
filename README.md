@@ -156,7 +156,7 @@ does not create a hidden runtime task.
 use futures::StreamExt;
 use stealth_oxide::{PlatformProfile, StealthConfig, TargetCoordinator};
 
-# async fn configure(page: chromiumoxide::Page) -> stealth_oxide::Result<()> {
+# async fn configure(page: chromiumoxide::Page) -> Result<(), Box<dyn std::error::Error>> {
 let stealth = StealthConfig::for_platform(PlatformProfile::Linux);
 stealth.apply(&page).await?;
 
@@ -181,6 +181,38 @@ overrides, but it preserves the host value of `WorkerNavigator.platform`. A
 Windows profile running on Linux therefore remains detectably hybrid even with
 target coordination. Use the Linux profile on Linux or a native Windows browser
 when page/worker platform equality is required.
+
+### Passive network audit
+
+`NetworkAudit` correlates Chrome's native `Network` events without enabling the
+`Fetch` domain or pausing requests. Subscribe before navigation and feed events
+from the same page/session into the corresponding `observe_*` methods:
+
+```rust,no_run
+use chromiumoxide::cdp::browser_protocol::network::EventResponseReceived;
+use futures::StreamExt;
+use stealth_oxide::NetworkAudit;
+
+# async fn audit_responses(page: chromiumoxide::Page) -> Result<(), Box<dyn std::error::Error>> {
+let mut responses = page.event_listener::<EventResponseReceived>().await?;
+let mut audit = NetworkAudit::default();
+
+while let Some(event) = responses.next().await {
+    audit.observe_response_received(&event);
+    if audit.summary().requests >= 100 {
+        break;
+    }
+}
+# Ok(())
+# }
+```
+
+For complete lifecycle correlation, also subscribe to `requestWillBeSent`, both
+extra-info events, `requestServedFromCache`, `loadingFinished`, and
+`loadingFailed`. Extra-info observations are retained as ordered sequences
+because CDP does not promise their ordering around redirects. Reports omit
+bodies, cookies, authorization data, remote addresses, URL credentials, query
+strings, and fragments, and retain at most 100 request lifecycles.
 
 ## Granular control
 

@@ -39,7 +39,8 @@ pub use environment::{
 };
 pub use error::{Error, Result, ValidationErrors, ValidationIssue};
 pub use network::{
-    FailureCategory, classify_failure, increment_failure_count, sanitize_error_name,
+    FailureCategory, NetworkAudit, NetworkAuditSummary, NetworkRequestAudit, RedirectHop,
+    classify_failure, increment_failure_count, sanitize_error_name, validate_request_identity,
 };
 pub use profiles::{
     BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION, BrowserProfile, BrowserProfileBuilder,
