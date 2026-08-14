@@ -10,7 +10,7 @@ All notable user-visible changes to this project are documented here.
 - An explicit Rust, Chromiumoxide, Chromium, and host-platform compatibility
   policy.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-08-13
 
 ### Added
 
