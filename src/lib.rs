@@ -9,6 +9,8 @@ pub mod environment;
 mod error;
 #[cfg(feature = "interceptor")]
 pub mod interceptor;
+/// Browser-native startup configuration derived from a browser profile.
+pub mod launch;
 /// Typed categories for observed Chromium network failures.
 pub mod network;
 mod patches;
@@ -38,6 +40,7 @@ pub use environment::{
     compare_voice_language, valid_device_memory_bucket,
 };
 pub use error::{Error, Result, ValidationErrors, ValidationIssue};
+pub use launch::ChromeLanguageConfig;
 pub use network::{
     FailureCategory, NetworkAudit, NetworkAuditSummary, NetworkRequestAudit, RedirectHop,
     classify_failure, increment_failure_count, sanitize_error_name,

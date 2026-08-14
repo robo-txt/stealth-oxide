@@ -112,12 +112,15 @@ the profile, and only then navigate to the destination:
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::{PlatformProfile, StealthConfig};
+use stealth_oxide::{ChromeLanguageConfig, PlatformProfile, StealthConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let profile = PlatformProfile::Linux.profile();
+    let language = ChromeLanguageConfig::from_profile(&profile);
     let browser_config = BrowserConfig::builder()
         .hide()
+        .arg(language.chrome_argument())
         .build()
         .map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(browser_config).await?;
@@ -130,9 +133,7 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::for_platform(PlatformProfile::Linux)
-        .apply(&page)
-        .await?;
+    let report = StealthConfig::from_profile(profile).apply(&page).await?;
     page.goto("https://example.com").await?;
 
     println!("applied patches: {:?}", report.applied());
@@ -140,6 +141,23 @@ async fn main() -> Result<()> {
     Ok(())
 }
 ```
+
+### Persistent-profile language
+
+For the most native language behavior, create
+`ChromeLanguageConfig::from_profile(&profile)` before Chrome starts. Pass its
+`chrome_argument()` to `BrowserConfigBuilder`, as shown above, and merge its
+`preference_patch()` into the selected profile's `Preferences` JSON while
+Chrome is stopped. The patch sets `intl.app_locale` and
+`intl.selected_languages`; it deliberately does not write
+`intl.accept_languages`, which Chromium derives from the selected-language
+preference.
+
+`StealthConfig::apply` still supplies CDP `acceptLanguage` as a target-scoped
+fallback for temporary profiles. Chrome remains responsible for formatting the
+HTTP header, including quality weights. The library does not edit Preferences
+on disk because doing so while Chrome is running can lose user changes or be
+overwritten by Chrome.
 
 Platform selection is always explicit: choose `Linux`, `MacOS`, or `Windows`.
 A preset describes the requested browser identity; it cannot transform the
