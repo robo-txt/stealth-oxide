@@ -16,8 +16,12 @@ mod patches;
 pub mod profiles;
 /// Shared privacy and diagnostic redaction helpers.
 pub mod redaction;
+/// Safe decisions for opt-in top-level navigation retries.
+pub mod retry;
 #[cfg(feature = "seeding")]
 mod seeding;
+/// Coordination for workers, popups, iframes, and other new CDP targets.
+pub mod targets;
 /// Read-only frame and target topology classification helpers.
 pub mod topology;
 mod validation;
@@ -42,10 +46,15 @@ pub use profiles::{
     ColorGamut, ColorScheme, ForcedColors, IdentityConfig, MediaFeaturesConfig, ProfileVersion,
     ReducedMotion, ScreenConfig, TouchConfig,
 };
+pub use retry::{
+    NavigationMethod, NavigationRetryPolicy, NoRetryReason, ResponseDisposition, RetryDecision,
+    classify_response, parse_retry_after,
+};
 #[cfg(feature = "seeding")]
 pub use seeding::{
     CookieSeed, IndexedDbSeed, OriginSeed, ProfileSeed, SeedReport, apply_profile_seeds,
 };
+pub use targets::{TargetApplyReport, TargetCoordinator};
 pub use topology::{Coverage, ResourceScope, classify_resource, sanitize_initiator_origin};
 pub use validation::validate_profile;
 

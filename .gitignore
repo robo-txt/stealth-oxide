@@ -3,6 +3,7 @@
 /AGENTS.md
 /docs/*
 !/docs/compatibility.md
+!/docs/network-fidelity-plan.md
 !/docs/releasing.md
 !/docs/images/
 /docs/images/*

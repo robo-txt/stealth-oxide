@@ -10,6 +10,7 @@ const TARGET_URL: &str = "https://example.com";
 #[tokio::main]
 async fn main() -> Result<()> {
     let browser_config = BrowserConfig::builder()
+        .hide()
         .build()
         .map_err(anyhow::Error::msg)?;
 

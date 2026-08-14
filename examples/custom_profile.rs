@@ -15,6 +15,7 @@ async fn main() -> Result<()> {
         .build()?;
 
     let browser_config = BrowserConfig::builder()
+        .hide()
         .build()
         .map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(browser_config).await?;

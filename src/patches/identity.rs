@@ -13,7 +13,7 @@ fn build_brand_version(brand: &BrandVersion) -> Result<UserAgentBrandVersion> {
         .map_err(|message| Error::invalid_parameters("user-agent metadata brand", message))
 }
 
-fn build_user_agent_metadata(
+pub(crate) fn build_user_agent_metadata(
     client_hints: &UserAgentClientHintsProfile,
 ) -> Result<UserAgentMetadata> {
     let brands = client_hints
@@ -49,6 +49,15 @@ fn build_user_agent_metadata(
 }
 
 pub async fn apply(page: &Page, profile: &NavigatorProfile) -> Result<()> {
+    let params = params(profile)?;
+    page.execute(params)
+        .await
+        .map_err(|source| Error::cdp("identity", source))?;
+
+    Ok(())
+}
+
+pub(crate) fn params(profile: &NavigatorProfile) -> Result<SetUserAgentOverrideParams> {
     let mut builder = SetUserAgentOverrideParams::builder()
         .user_agent(profile.user_agent.clone())
         .accept_language(profile.languages.join(","))
@@ -58,12 +67,7 @@ pub async fn apply(page: &Page, profile: &NavigatorProfile) -> Result<()> {
         builder = builder.user_agent_metadata(build_user_agent_metadata(client_hints)?);
     }
 
-    let params = builder
+    builder
         .build()
-        .map_err(|message| Error::invalid_parameters("identity", message))?;
-    page.execute(params)
-        .await
-        .map_err(|source| Error::cdp("identity", source))?;
-
-    Ok(())
+        .map_err(|message| Error::invalid_parameters("identity", message))
 }

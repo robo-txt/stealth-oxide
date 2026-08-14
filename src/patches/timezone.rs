@@ -10,7 +10,7 @@ pub async fn apply(page: &Page, timezone: &str) -> Result<()> {
     Ok(())
 }
 
-fn params(timezone: &str) -> Result<SetTimezoneOverrideParams> {
+pub(crate) fn params(timezone: &str) -> Result<SetTimezoneOverrideParams> {
     SetTimezoneOverrideParams::builder()
         .timezone_id(timezone)
         .build()
