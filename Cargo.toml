@@ -17,6 +17,7 @@ include = [
     "/tests/**",
     "/docs/compatibility.md",
     "/docs/releasing.md",
+    "/docs/images/stealth-oxide-logo.png",
     "/CHANGELOG.md",
     "/SECURITY.md",
     "/CONTRIBUTING.md",

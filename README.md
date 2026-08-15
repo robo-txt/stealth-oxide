@@ -1,4 +1,12 @@
-# stealth-oxide
+<p align="center">
+  <img src="https://raw.githubusercontent.com/robo-txt/stealth-oxide/main/docs/images/stealth-oxide-logo.png" alt="stealth-oxide logo" width="180">
+</p>
+
+<h1 align="center">stealth-oxide</h1>
+
+<p align="center">
+  Typed, configurable Chromium profiles and CDP emulation for Rust.
+</p>
 
 Typed, configurable browser profiles for
 [`chromiumoxide`](https://crates.io/crates/chromiumoxide), applied through the
@@ -14,6 +22,10 @@ taking over the browser lifecycle:
   before sending CDP commands.
 - Keep browser launch, proxies, authentication, navigation, and shutdown in
   application code.
+
+The public configuration API separates browser identity, native-value
+preservation, network observation, request-header policy, and navigation retry
+decisions. Nothing retries, intercepts, or changes a session implicitly.
 
 ## Browser-test container captures
 
@@ -242,6 +254,12 @@ followed policy observed earlier in the audit. Findings are warnings rather
 than contradictions when no prior opt-in was seen, since a persistent Chrome
 profile can retain Client Hint preferences from an earlier session. The
 library observes this negotiation and never adds `Sec-CH-UA-*` headers itself.
+
+Network auditing is read-only: it validates what Chrome transmitted but does
+not repair mismatches or rewrite requests. Applications that need explicit
+header additions can enable the optional `interceptor` feature and use the
+validated `HeaderPolicy` builder. Credential, cookie, hop-by-hop, and framing
+headers remain unavailable to that policy.
 
 ## Granular control
 
