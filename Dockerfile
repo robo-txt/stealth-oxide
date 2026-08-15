@@ -1,12 +1,14 @@
 FROM rust:bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
+ARG CHROME_VERSION=150.0.7871.128
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         chromium \
         chromium-sandbox \
+        curl \
         fontconfig \
         fonts-crosextra-caladea \
         fonts-crosextra-carlito \
@@ -25,8 +27,16 @@ RUN apt-get update \
         speech-dispatcher-espeak-ng \
         tint2 \
         x11-utils \
+        unzip \
         xvfb \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --fail --silent --show-error --location \
+        "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" \
+        --output /tmp/chrome-linux64.zip \
+    && mkdir -p /opt/chrome-for-testing \
+    && unzip -q /tmp/chrome-linux64.zip -d /opt/chrome-for-testing \
+    && ln -s /opt/chrome-for-testing/chrome-linux64/chrome /usr/local/bin/chromium \
+    && rm /tmp/chrome-linux64.zip
 
 ENV DISPLAY=:99 \
     GALLIUM_DRIVER=llvmpipe \

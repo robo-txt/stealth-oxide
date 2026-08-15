@@ -1,4 +1,5 @@
 /target
+/eval-results/
 /skills/
 /AGENTS.md
 /docs/*
@@ -6,6 +7,7 @@
 !/docs/network-fidelity-plan.md
 !/docs/releasing.md
 !/docs/site-evaluation-matrix.md
+!/docs/user-control-alignment-plan.md
 !/docs/images/
 /docs/images/*
 !/docs/images/creepjs-full-page.png

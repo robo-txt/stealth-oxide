@@ -95,7 +95,7 @@ mod tests {
         let headers = safe_headers(&json!({
             "Authorization": "Bearer secret",
             "Content-Type": "text/html",
-            "Location": "https://example.com/?token=secret"
+            "Location": "https://example.com/?token=secret",
         }));
         assert!(!headers.contains_key("authorization"));
         assert_eq!(headers["content-type"], "text/html");

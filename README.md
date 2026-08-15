@@ -511,6 +511,17 @@ evidence. It deliberately distinguishes destination-content verification from
 fingerprint-only diagnostics and does not treat an HTTP `200` as proof that a
 challenge was passed.
 
+The reproducible evaluation fixtures live under [`dev/evals/`](dev/evals/).
+See the [site evaluation matrix](docs/site-evaluation-matrix.md) for the
+recording format, repeatability requirements, and evidence rules.
+
+Recent network-fidelity work adds bounded retry decisions, redacted passive
+network auditing, transmitted-identity and Client-Hint validation, native
+Chrome language startup, Chrome-major compatibility gates, and expanded
+redirect/cache/worker/concurrency coverage. The [user-control and alignment
+plan](docs/user-control-alignment-plan.md) documents the configuration contract,
+validation rules, and next API slices.
+
 ## Container development
 
 The repository Docker environment supplies Chromium, Xvfb, Openbox, a taskbar,
