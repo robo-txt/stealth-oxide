@@ -42,8 +42,8 @@ pub use environment::{
 pub use error::{Error, Result, ValidationErrors, ValidationIssue};
 pub use launch::ChromeLanguageConfig;
 pub use network::{
-    FailureCategory, NetworkAudit, NetworkAuditSummary, NetworkRequestAudit, RedirectHop,
-    classify_failure, increment_failure_count, sanitize_error_name,
+    FailureCategory, NetworkAudit, NetworkAuditHandle, NetworkAuditSummary, NetworkRequestAudit,
+    RedirectHop, classify_failure, increment_failure_count, sanitize_error_name,
     validate_client_hint_negotiation, validate_request_identity,
 };
 pub use profiles::{

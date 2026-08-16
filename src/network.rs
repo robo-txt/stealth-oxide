@@ -2,11 +2,14 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::network::{
-    EventLoadingFailed, EventLoadingFinished, EventRequestServedFromCache, EventRequestWillBeSent,
-    EventRequestWillBeSentExtraInfo, EventResponseReceived, EventResponseReceivedExtraInfo,
-    Headers, Response,
+    EnableParams, EventLoadingFailed, EventLoadingFinished, EventRequestServedFromCache,
+    EventRequestWillBeSent, EventRequestWillBeSentExtraInfo, EventResponseReceived,
+    EventResponseReceivedExtraInfo, Headers, Response,
 };
+use futures::StreamExt;
+use tokio::sync::Mutex;
 
 use crate::{
     environment::{Finding, FindingSeverity},
@@ -370,13 +373,86 @@ pub struct NetworkAuditSummary {
 /// bodies, or replays traffic. Call the matching `observe_*` method for events
 /// received from the same page/session. The oldest lifecycle is evicted when
 /// capacity is reached.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NetworkAudit {
     capacity: usize,
     main_frame_id: Option<String>,
     order: VecDeque<String>,
     requests: BTreeMap<String, NetworkRequestAudit>,
     accepted_client_hints: BTreeMap<String, BTreeSet<String>>,
+}
+
+/// A live, read-only network audit attached to one Chromium page/session.
+pub struct NetworkAuditHandle {
+    audit: std::sync::Arc<Mutex<NetworkAudit>>,
+    collectors: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl std::fmt::Debug for NetworkAuditHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NetworkAuditHandle")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for NetworkAuditHandle {
+    fn drop(&mut self) {
+        for collector in &self.collectors {
+            collector.abort();
+        }
+    }
+}
+
+impl NetworkAuditHandle {
+    /// Attaches bounded observers to Chrome's native Network events.
+    pub async fn attach(page: &Page) -> chromiumoxide::error::Result<Self> {
+        let audit = std::sync::Arc::new(Mutex::new(NetworkAudit::default()));
+        macro_rules! collect {
+            ($event:ty, $method:ident) => {{
+                let mut events = page.event_listener::<$event>().await?;
+                let audit = audit.clone();
+                tokio::spawn(async move {
+                    while let Some(event) = events.next().await {
+                        audit.lock().await.$method(&event);
+                    }
+                })
+            }};
+        }
+        let collectors = vec![
+            collect!(EventRequestWillBeSent, observe_request_will_be_sent),
+            collect!(EventRequestWillBeSentExtraInfo, observe_request_extra_info),
+            collect!(EventResponseReceived, observe_response_received),
+            collect!(EventResponseReceivedExtraInfo, observe_response_extra_info),
+            collect!(
+                EventRequestServedFromCache,
+                observe_request_served_from_cache
+            ),
+            collect!(EventLoadingFinished, observe_loading_finished),
+            collect!(EventLoadingFailed, observe_loading_failed),
+        ];
+        page.execute(EnableParams::default()).await?;
+        Ok(Self { audit, collectors })
+    }
+
+    /// Sets the main frame used for resource-scope classification.
+    pub async fn set_main_frame_id(&self, frame_id: impl Into<String>) {
+        self.audit.lock().await.set_main_frame_id(frame_id);
+    }
+
+    /// Returns a snapshot of the bounded observations collected so far.
+    pub async fn snapshot(&self) -> NetworkAudit {
+        self.audit.lock().await.clone()
+    }
+
+    /// Stops event collection and returns the final bounded audit snapshot.
+    pub async fn stop(self) -> NetworkAudit {
+        let audit = self.audit.clone();
+        for collector in &self.collectors {
+            collector.abort();
+        }
+        audit.lock().await.clone()
+    }
 }
 
 impl Default for NetworkAudit {
@@ -1025,6 +1101,38 @@ mod tests {
             findings[0].code,
             "high-entropy-client-hint-without-observed-opt-in"
         );
+    }
+
+    #[tokio::test]
+    async fn audit_handle_drop_aborts_collectors_and_preserves_frame_scope() {
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        struct DropProbe(std::sync::Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let probe = dropped.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let collector = tokio::spawn(async move {
+            let _probe = DropProbe(probe);
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+        });
+        started_rx.await.unwrap();
+        let handle = NetworkAuditHandle {
+            audit: std::sync::Arc::new(Mutex::new(NetworkAudit::default())),
+            collectors: vec![collector],
+        };
+        handle.set_main_frame_id("main-frame").await;
+        assert_eq!(
+            handle.snapshot().await.main_frame_id.as_deref(),
+            Some("main-frame")
+        );
+        drop(handle);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     fn request_event(request_id: &str, request_url: &str) -> EventRequestWillBeSent {

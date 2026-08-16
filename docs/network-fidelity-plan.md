@@ -237,9 +237,10 @@ Protected-site outcomes and fingerprint-only diagnostics are tracked in the
 tested commit and runtime, use repeated application-content assertions, and be
 marked stale after material browser, profile, or target changes.
 
-The `site_evaluation` example enforces same-major runtime/profile compatibility,
-uses the host-matching Linux profile, requires destination-content evidence,
-and emits structured challenge observations for authorized test origins.
+The evaluation workflow should enforce same-major runtime/profile compatibility,
+use a host-matching profile, require application-owned destination assertions,
+and retain only bounded, redacted `NetworkAudit` evidence for authorized test
+origins.
 
 ## Initial delivery order
 

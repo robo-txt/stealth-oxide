@@ -219,27 +219,21 @@ when page/worker platform equality is required.
 ### Passive network audit
 
 `NetworkAudit` correlates Chrome's native `Network` events without enabling the
-`Fetch` domain or pausing requests. Subscribe before navigation and feed events
-from the same page/session into the corresponding `observe_*` methods:
+`Fetch` domain or pausing requests. Attach a bounded observer before navigation:
 
 ```rust,no_run
-use chromiumoxide::cdp::browser_protocol::network::EventResponseReceived;
-use futures::StreamExt;
-use stealth_oxide::NetworkAudit;
+use stealth_oxide::NetworkAuditHandle;
 
-# async fn audit_responses(page: chromiumoxide::Page) -> Result<(), Box<dyn std::error::Error>> {
-let mut responses = page.event_listener::<EventResponseReceived>().await?;
-let mut audit = NetworkAudit::default();
-
-while let Some(event) = responses.next().await {
-    audit.observe_response_received(&event);
-    if audit.summary().requests >= 100 {
-        break;
-    }
-}
-# Ok(())
-# }
+// `page` is an existing chromiumoxide Page.
+let audit = NetworkAuditHandle::attach(&page).await?;
+page.goto("https://example.com").await?;
+let audit = audit.stop().await;
+println!("observed requests: {}", audit.summary().requests);
 ```
+
+For lower-level integrations, `NetworkAudit` remains available: callers can
+feed events from the same page/session into the corresponding `observe_*`
+methods directly.
 
 For complete lifecycle correlation, also subscribe to `requestWillBeSent`, both
 extra-info events, `requestServedFromCache`, `loadingFinished`, and
@@ -475,10 +469,6 @@ Each example focuses on one public workflow:
 cargo run --example basic
 cargo run --example custom_configuration
 cargo run --example custom_profile
-cargo run --example network_baseline
-cargo run --example network_baseline -- --configured
-cargo run --example site_evaluation -- \
-  --url https://example.com/ --expect "Example Domain"
 cargo run --features seeding --example profile_seeding
 docker compose run --rm stealth-oxide cargo run --example creepjs_screenshot
 docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
@@ -487,12 +477,6 @@ docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
 - `basic`: launch Chromium, apply the recommended profile, and navigate.
 - `custom_configuration`: select native, disabled, and overridden patches.
 - `custom_profile`: build and apply a typed Windows desktop profile.
-- `network_baseline`: capture a stock-Chrome baseline against a controlled local
-  redirect/cache/Client-Hint/concurrency fixture; add `--configured` to capture
-  the library-configured comparison using the same observer and fixture.
-- `site_evaluation`: run a content-asserted, runtime/profile-compatible browser
-  observation for an origin the operator is authorized to test. It refuses a
-  mismatched Chrome major and reports challenge evidence as structured JSON.
 - `profile_seeding`: install repeatable test state with the optional `seeding`
   feature.
 - `creepjs_screenshot` and `sannysoft_screenshot`: reproduce the full-page

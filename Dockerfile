@@ -1,13 +1,15 @@
-FROM rust:bookworm
+FROM rust:bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG CHROME_VERSION=150.0.7871.128
+ARG CHROME_SHA256=774875d69dc22efc65015fccf674463324bd6c436fd520ae5b7e346b3c402bbc
 
+# Chrome for Testing is the browser runtime; its archive and version are
+# independently pinned below so Debian's moving packages cannot change the
+# profile/runtime major.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        chromium \
-        chromium-sandbox \
         curl \
         fontconfig \
         fonts-crosextra-caladea \
@@ -17,6 +19,8 @@ RUN apt-get update \
         libegl1-mesa \
         libgl1-mesa-dri \
         libgbm1 \
+        libnspr4 \
+        libnss3 \
         libssl-dev \
         mesa-utils \
         mesa-vulkan-drivers \
@@ -33,6 +37,7 @@ RUN apt-get update \
     && curl --fail --silent --show-error --location \
         "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" \
         --output /tmp/chrome-linux64.zip \
+    && echo "${CHROME_SHA256}  /tmp/chrome-linux64.zip" | sha256sum --check --status \
     && mkdir -p /opt/chrome-for-testing \
     && unzip -q /tmp/chrome-linux64.zip -d /opt/chrome-for-testing \
     && ln -s /opt/chrome-for-testing/chrome-linux64/chrome /usr/local/bin/chromium \
