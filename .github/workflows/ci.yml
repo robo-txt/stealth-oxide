@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker compose build
       - name: Verify the supported Chromium major
-        run: docker compose run --rm stealth-oxide chromium --version | grep -E '^Chromium 151\.'
+        run: docker compose run --rm stealth-oxide chromium --version | grep -E '^Chromium 150\.'
       - run: docker compose run --rm stealth-oxide
 
   required-ci:

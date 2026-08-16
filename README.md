@@ -222,13 +222,17 @@ when page/worker platform equality is required.
 `Fetch` domain or pausing requests. Attach a bounded observer before navigation:
 
 ```rust,no_run
+use chromiumoxide::Page;
 use stealth_oxide::NetworkAuditHandle;
 
-// `page` is an existing chromiumoxide Page.
+#[allow(dead_code)]
+async fn audit_page(page: &Page) -> Result<(), Box<dyn std::error::Error>> {
 let audit = NetworkAuditHandle::attach(&page).await?;
 page.goto("https://example.com").await?;
 let audit = audit.stop().await;
 println!("observed requests: {}", audit.summary().requests);
+# Ok(())
+# }
 ```
 
 For lower-level integrations, `NetworkAudit` remains available: callers can

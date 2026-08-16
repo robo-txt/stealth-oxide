@@ -160,23 +160,23 @@ impl TargetCoordinator {
                 }
                 next_id += 1;
             }
-            if command_error.is_none()
-                && let Some(command) = &self.timezone
-            {
-                match send_nested(page, &event.session_id, next_id, command).await {
-                    Ok(()) => applied_commands += 1,
-                    Err(error) => command_error = Some(error),
+            if command_error.is_none() {
+                if let Some(command) = &self.timezone {
+                    match send_nested(page, &event.session_id, next_id, command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
                 }
-                next_id += 1;
             }
-            if command_error.is_none()
-                && let Some(command) = &self.identity
-            {
-                match send_nested(page, &event.session_id, next_id, command).await {
-                    Ok(()) => applied_commands += 1,
-                    Err(error) => command_error = Some(error),
+            if command_error.is_none() {
+                if let Some(command) = &self.identity {
+                    match send_nested(page, &event.session_id, next_id, command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
                 }
-                next_id += 1;
             }
         }
 
