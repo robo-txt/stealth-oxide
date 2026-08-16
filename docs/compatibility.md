@@ -10,17 +10,17 @@ operating system, GPU, fonts, voices, or platform-only features.
 | --- | --- |
 | Rust | 1.86 minimum; latest stable is also tested |
 | Chromiumoxide | 0.9.x, beginning with 0.9.1 |
-| Built-in browser identity | Google Chrome 150.0.7871.128 |
+| Built-in browser identity | Google Chrome 151.0.7922.138 |
 | Runtime/profile matching | Same Chrome major version |
 | Required browser-test host | Debian 12 Linux container |
-| Required browser-test runtime | Chromium 150.x |
+| Required browser-test runtime | Chromium 151.x |
 
 Cargo resolves `chromiumoxide = "0.9.1"` within the compatible 0.9 release
 line. The lockfile is used for reproducible repository and release checks.
 
 ## Chromium versions
 
-All built-in profiles currently model Chrome 150.0.7871.128. The public
+All built-in profiles currently model Chrome 151.0.7922.138. The public
 `ProfileVersion` metadata and `compare_browser_versions` helper let an
 application compare a profile with the `product` value returned by CDP
 `Browser.getVersion`.
@@ -30,7 +30,7 @@ work, but are not guaranteed. A custom identity has no version claim unless its
 builder is given explicit version metadata.
 
 The required container CI verifies that its installed runtime remains Chromium
-150.x before running browser diagnostics. The Debian package is not pinned to a
+151.x before running browser diagnostics. The Debian package is not pinned to a
 full patch-version artifact, so a future package-repository update to another
 major deliberately fails the compatibility gate until maintainers review and
 update the profile, tests, and policy together.

@@ -74,7 +74,7 @@ Rust 1.86 or newer is required by the resolved Chromiumoxide dependency graph.
 
 ## Compatibility
 
-The built-in profiles model Google Chrome 150.0.7871.128. Linux is the only
+The built-in profiles model Google Chrome 151.0.7922.138. Linux is the only
 host with required real-browser CI coverage; Windows and macOS profiles model
 browser-visible values but are not yet exercised on native CI runners. See the
 [compatibility policy](docs/compatibility.md) for the complete Rust,
@@ -92,12 +92,12 @@ use stealth_oxide::{
 let profile = PlatformProfile::Windows.profile();
 let status = compare_browser_versions(
     profile.version(),
-    "Chrome/150.0.7871.128",
+    "Chrome/151.0.7922.138",
 );
 
 assert_eq!(
     status,
-    CompatibilityStatus::Compatible { chrome_major: 150 }
+    CompatibilityStatus::Compatible { chrome_major: 151 }
 );
 ```
 
@@ -210,7 +210,7 @@ page.goto("https://example.com").await?;
 # }
 ```
 
-Chrome 150 accepts worker-target UA, language, locale, timezone, and Client Hint
+Chrome 151 accepts worker-target UA, language, locale, timezone, and Client Hint
 overrides, but it preserves the host value of `WorkerNavigator.platform`. A
 Windows profile running on Linux therefore remains detectably hybrid even with
 target coordination. Use the Linux profile on Linux or a native Windows browser

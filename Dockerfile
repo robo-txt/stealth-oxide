@@ -1,8 +1,8 @@
 FROM rust:bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG CHROME_VERSION=150.0.7871.128
-ARG CHROME_SHA256=774875d69dc22efc65015fccf674463324bd6c436fd520ae5b7e346b3c402bbc
+ARG CHROME_VERSION=151.0.7922.138
+ARG CHROME_SHA256=f2c1d48c310a2fc79aad59e985103902f27b70fd186b3f663ee67c4c722f5566
 
 # Chrome for Testing is the browser runtime; its archive and version are
 # independently pinned below so Debian's moving packages cannot change the

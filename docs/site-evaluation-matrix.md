@@ -24,6 +24,10 @@ loop, and preserved session state on a follow-up navigation.
 
 ## Current results
 
+The active container and built-in profiles now target Chrome 151.0.7922.138.
+Rows recorded against Chrome 150 remain historical evidence and must be
+rerun before their outcomes are treated as current compatibility results.
+
 | Target | Protection or purpose | Last run | Commit | Runtime and host | Mode | Attempts | Status | Evidence |
 | --- | --- | --- | --- | --- | --- | ---: | --- | --- |
 | Local network fixture | Redirect, cache, concurrency, `Accept-CH`, and `503` observation | 2026-08-14 | `c7f0a47` | Chrome 150.0.7871.128, Linux | Native | 1 | `verified` | 8/8 requests finished, one cache hit, expected redirect and Client Hint opt-in |

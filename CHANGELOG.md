@@ -10,6 +10,11 @@ All notable user-visible changes to this project are documented here.
 - An explicit Rust, Chromiumoxide, Chromium, and host-platform compatibility
   policy.
 
+### Changed
+
+- Updated the built-in profile and required container runtime to Chrome
+  151.0.7922.138.
+
 ## [0.1.0] - 2026-08-13
 
 ### Added

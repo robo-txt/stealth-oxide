@@ -1065,7 +1065,7 @@ mod tests {
             "subsequent",
             json!({
                 "Sec-CH-UA-Arch": "\"x86\"",
-                "Sec-CH-UA-Full-Version-List": "\"Chromium\";v=\"150.0.0.0\""
+                "Sec-CH-UA-Full-Version-List": "\"Chromium\";v=\"151.0.0.0\""
             }),
         );
         audit.observe_request_extra_info(&extra);

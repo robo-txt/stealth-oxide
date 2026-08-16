@@ -26,8 +26,8 @@ pub enum CompatibilityStatus {
 
 /// Compares optional profile metadata with a CDP `Browser.getVersion` product string.
 ///
-/// Recognized examples include `Chrome/150.0.7871.128`,
-/// `HeadlessChrome/150.0.7871.128`, and `Chromium/150.0.7871.128`.
+/// Recognized examples include `Chrome/151.0.7922.138`,
+/// `HeadlessChrome/151.0.7922.138`, and `Chromium/151.0.7922.138`.
 pub fn compare_browser_versions(
     profile: Option<&ProfileVersion>,
     runtime_product: &str,
@@ -66,13 +66,13 @@ mod tests {
     #[test]
     fn accepts_supported_chromium_product_names() {
         for product in [
-            "Chrome/150.0.7871.128",
-            "HeadlessChrome/150.0.7871.128",
-            "Chromium/150.0.7871.128",
+            "Chrome/151.0.7922.138",
+            "HeadlessChrome/151.0.7922.138",
+            "Chromium/151.0.7922.138",
         ] {
             assert_eq!(
                 compare_browser_versions(Some(&ProfileVersion::built_in()), product),
-                CompatibilityStatus::Compatible { chrome_major: 150 }
+                CompatibilityStatus::Compatible { chrome_major: 151 }
             );
         }
     }
@@ -82,7 +82,7 @@ mod tests {
         assert_eq!(
             compare_browser_versions(Some(&ProfileVersion::built_in()), "Chrome/152.0.0.0"),
             CompatibilityStatus::MajorMismatch {
-                profile_major: 150,
+                profile_major: 151,
                 runtime_major: 152,
             }
         );
@@ -91,7 +91,7 @@ mod tests {
             CompatibilityStatus::UnknownRuntimeVersion
         );
         assert_eq!(
-            compare_browser_versions(None, "Chrome/150.0.7871.128"),
+            compare_browser_versions(None, "Chrome/151.0.7922.138"),
             CompatibilityStatus::UnknownProfileVersion
         );
     }
