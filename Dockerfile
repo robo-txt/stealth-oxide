@@ -35,6 +35,8 @@ RUN apt-get update \
         xvfb \
     && rm -rf /var/lib/apt/lists/* \
     && curl --fail --silent --show-error --location \
+        --retry 5 --retry-all-errors --retry-delay 5 \
+        --connect-timeout 30 --max-time 600 \
         "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" \
         --output /tmp/chrome-linux64.zip \
     && echo "${CHROME_SHA256}  /tmp/chrome-linux64.zip" | sha256sum --check --status \
