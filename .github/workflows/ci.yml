@@ -47,7 +47,7 @@ jobs:
         run: |
           consumer_dir="$(mktemp -d)"
           cargo new --quiet --bin "$consumer_dir/consumer"
-          packaged_source="$GITHUB_WORKSPACE/target/package/stealth-oxide-0.1.0"
+          packaged_source="$GITHUB_WORKSPACE/target/package/stealth-oxide-0.1.1"
           cat >> "$consumer_dir/consumer/Cargo.toml" <<EOF
           stealth-oxide = { path = "$packaged_source", features = ["interceptor", "seeding"] }
           EOF

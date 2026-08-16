@@ -63,7 +63,7 @@ Add the crate and its browser-runtime dependencies:
 
 ```toml
 [dependencies]
-stealth-oxide = "0.1.0"
+stealth-oxide = "0.1.1"
 chromiumoxide = "0.9.1"
 anyhow = "1"
 futures = "0.3"
@@ -110,7 +110,7 @@ when an application needs reproducible test cookies or origin storage:
 ```toml
 [dependencies]
 stealth-oxide = {
-    version = "0.1.0",
+    version = "0.1.1",
     features = ["seeding"]
 }
 ```
