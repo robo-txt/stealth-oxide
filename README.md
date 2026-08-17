@@ -8,6 +8,11 @@
   Typed, configurable Chromium profiles and CDP emulation for Rust.
 </p>
 
+> **Testing only:** `stealth-oxide` is intended for authorized browser
+> automation testing, research, and quality assurance. Do not use it to evade
+> access controls or security systems, or against sites and systems without
+> permission.
+
 Typed, configurable browser profiles for
 [`chromiumoxide`](https://crates.io/crates/chromiumoxide), applied through the
 Chrome DevTools Protocol before site scripts run.
