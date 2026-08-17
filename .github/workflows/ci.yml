@@ -47,7 +47,7 @@ jobs:
         run: |
           consumer_dir="$(mktemp -d)"
           cargo new --quiet --bin "$consumer_dir/consumer"
-          packaged_source="$GITHUB_WORKSPACE/target/package/stealth-oxide-0.1.0"
+          packaged_source="$GITHUB_WORKSPACE/target/package/stealth-oxide-0.1.1"
           cat >> "$consumer_dir/consumer/Cargo.toml" <<EOF
           stealth-oxide = { path = "$packaged_source", features = ["interceptor", "seeding"] }
           EOF
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker compose build
       - name: Verify the supported Chromium major
-        run: docker compose run --rm stealth-oxide chromium --version | grep -E '^Chromium 151\.'
+        run: docker compose run --rm stealth-oxide chromium --version | grep -E '^(Chromium|Google Chrome for Testing) 151\.'
       - run: docker compose run --rm stealth-oxide
 
   required-ci:

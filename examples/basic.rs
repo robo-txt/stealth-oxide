@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use stealth_oxide::{PlatformProfile, StealthConfig};
@@ -10,6 +10,7 @@ const TARGET_URL: &str = "https://example.com";
 #[tokio::main]
 async fn main() -> Result<()> {
     let browser_config = BrowserConfig::builder()
+        .hide()
         .build()
         .map_err(anyhow::Error::msg)?;
 
@@ -23,9 +24,13 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::for_platform(PlatformProfile::Windows)
-        .apply(&page)
-        .await?;
+    let config = StealthConfig::for_platform(PlatformProfile::Linux);
+    let plan = config.plan();
+    println!("patch plan: {:?}", plan.operations());
+    if !plan.issues().is_empty() {
+        bail!("profile configuration is inconsistent: {:?}", plan.issues());
+    }
+    let report = config.apply(&page).await?;
 
     let navigation_started = Instant::now();
     page.goto(TARGET_URL).await?;
@@ -38,6 +43,8 @@ async fn main() -> Result<()> {
     println!("content size: {content_size} bytes");
     println!("navigation time: {navigation_time:.2?}");
     println!("applied patches: {:?}", report.applied());
+    println!("native patches: {:?}", report.native());
+    println!("skipped patches: {:?}", report.skipped());
     browser.close().await?;
     Ok(())
 }

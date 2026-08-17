@@ -10,7 +10,7 @@ pub async fn apply(page: &Page, locale: &str) -> Result<()> {
     Ok(())
 }
 
-fn params(locale: &str) -> SetLocaleOverrideParams {
+pub(crate) fn params(locale: &str) -> SetLocaleOverrideParams {
     SetLocaleOverrideParams::builder().locale(locale).build()
 }
 

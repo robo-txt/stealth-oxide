@@ -6,6 +6,7 @@ use stealth_oxide::{CookieSeed, PlatformProfile, ProfileSeed, StealthConfig, app
 #[tokio::main]
 async fn main() -> Result<()> {
     let browser_config = BrowserConfig::builder()
+        .hide()
         .build()
         .map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(browser_config).await?;

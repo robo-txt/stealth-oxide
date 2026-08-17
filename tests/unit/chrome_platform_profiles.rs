@@ -30,6 +30,7 @@ fn assert_common_desktop_invariants(profile: BrowserProfile) {
         .iter()
         .map(|brand| brand.brand.as_str())
         .collect::<HashSet<_>>();
+    let expected_major = BUILT_IN_CHROME_MAJOR.to_string();
 
     assert_eq!(brand_names.len(), hints.brands.len());
     assert_eq!(brand_names, full_brand_names);
@@ -37,7 +38,7 @@ fn assert_common_desktop_invariants(profile: BrowserProfile) {
         hints
             .brands
             .iter()
-            .all(|brand| brand.version == "151" || brand.brand == "Not.A/Brand")
+            .all(|brand| brand.version == expected_major || brand.brand == "Not.A/Brand")
     );
     assert!(
         hints

@@ -97,6 +97,10 @@ pub enum ValidationIssue {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A nested target command could not be encoded for CDP transport.
+    #[error("failed to encode a target-session CDP command: {0}")]
+    TargetCommandJson(serde_json::Error),
+
     /// A network-interceptor header policy contains an unsafe or invalid value.
     #[cfg(feature = "interceptor")]
     #[error("invalid interceptor header policy: {message}")]
@@ -177,6 +181,10 @@ impl Error {
             patch,
             message: message.into(),
         }
+    }
+
+    pub(crate) fn target_command_json(source: serde_json::Error) -> Self {
+        Self::TargetCommandJson(source)
     }
 
     pub(crate) fn cdp(patch: &'static str, source: CdpError) -> Self {

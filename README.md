@@ -1,4 +1,12 @@
-# stealth-oxide
+<p align="center">
+  <img src="https://raw.githubusercontent.com/robo-txt/stealth-oxide/main/docs/images/stealth-oxide-logo.png" alt="stealth-oxide logo" width="180">
+</p>
+
+<h1 align="center">stealth-oxide</h1>
+
+<p align="center">
+  Typed, configurable Chromium profiles and CDP emulation for Rust.
+</p>
 
 Typed, configurable browser profiles for
 [`chromiumoxide`](https://crates.io/crates/chromiumoxide), applied through the
@@ -14,6 +22,10 @@ taking over the browser lifecycle:
   before sending CDP commands.
 - Keep browser launch, proxies, authentication, navigation, and shutdown in
   application code.
+
+The public configuration API separates browser identity, native-value
+preservation, network observation, request-header policy, and navigation retry
+decisions. Nothing retries, intercepts, or changes a session implicitly.
 
 ## Browser-test container captures
 
@@ -51,7 +63,7 @@ Add the crate and its browser-runtime dependencies:
 
 ```toml
 [dependencies]
-stealth-oxide = "0.1.0"
+stealth-oxide = "0.1.1"
 chromiumoxide = "0.9.1"
 anyhow = "1"
 futures = "0.3"
@@ -62,7 +74,7 @@ Rust 1.86 or newer is required by the resolved Chromiumoxide dependency graph.
 
 ## Compatibility
 
-The built-in profiles model Google Chrome 151.0.7922.71. Linux is the only
+The built-in profiles model Google Chrome 151.0.7922.138. Linux is the only
 host with required real-browser CI coverage; Windows and macOS profiles model
 browser-visible values but are not yet exercised on native CI runners. See the
 [compatibility policy](docs/compatibility.md) for the complete Rust,
@@ -80,7 +92,7 @@ use stealth_oxide::{
 let profile = PlatformProfile::Windows.profile();
 let status = compare_browser_versions(
     profile.version(),
-    "Chrome/151.0.7922.71",
+    "Chrome/151.0.7922.138",
 );
 
 assert_eq!(
@@ -98,7 +110,7 @@ when an application needs reproducible test cookies or origin storage:
 ```toml
 [dependencies]
 stealth-oxide = {
-    version = "0.1.0",
+    version = "0.1.1",
     features = ["seeding"]
 }
 ```
@@ -112,11 +124,15 @@ the profile, and only then navigate to the destination:
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use stealth_oxide::{PlatformProfile, StealthConfig};
+use stealth_oxide::{ChromeLanguageConfig, PlatformProfile, StealthConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let profile = PlatformProfile::Linux.profile();
+    let language = ChromeLanguageConfig::from_profile(&profile);
     let browser_config = BrowserConfig::builder()
+        .hide()
+        .arg(language.chrome_argument())
         .build()
         .map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(browser_config).await?;
@@ -129,9 +145,7 @@ async fn main() -> Result<()> {
     });
 
     let page = browser.new_page("about:blank").await?;
-    let report = StealthConfig::for_platform(PlatformProfile::Linux)
-        .apply(&page)
-        .await?;
+    let report = StealthConfig::from_profile(profile).apply(&page).await?;
     page.goto("https://example.com").await?;
 
     println!("applied patches: {:?}", report.applied());
@@ -140,9 +154,110 @@ async fn main() -> Result<()> {
 }
 ```
 
+### Persistent-profile language
+
+For the most native language behavior, create
+`ChromeLanguageConfig::from_profile(&profile)` before Chrome starts. Pass its
+`chrome_argument()` to `BrowserConfigBuilder`, as shown above, and merge its
+`preference_patch()` into the selected profile's `Preferences` JSON while
+Chrome is stopped. The patch sets `intl.app_locale` and
+`intl.selected_languages`; it deliberately does not write
+`intl.accept_languages`, which Chromium derives from the selected-language
+preference.
+
+`StealthConfig::apply` still supplies CDP `acceptLanguage` as a target-scoped
+fallback for temporary profiles. Chrome remains responsible for formatting the
+HTTP header, including quality weights. The library does not edit Preferences
+on disk because doing so while Chrome is running can lose user changes or be
+overwritten by Chrome.
+
 Platform selection is always explicit: choose `Linux`, `MacOS`, or `Windows`.
 A preset describes the requested browser identity; it cannot transform the
 underlying operating system, GPU, fonts, voices, or platform-only features.
+
+### New target coverage
+
+CDP emulation is target-scoped. Enable `TargetCoordinator` before navigation
+when the destination can create dedicated or shared workers, related iframes,
+or popups. The application must continuously drive the returned event stream;
+the coordinator does not create a hidden runtime task. Service workers are
+excluded from pausing because Chromiumoxide 0.9.1 does not expose public
+arbitrary-session command routing and Chrome rejects its deprecated nested
+service-worker session path. They continue with native host values and should
+be reported as a coverage gap.
+
+```rust,no_run
+use futures::StreamExt;
+use stealth_oxide::{PlatformProfile, StealthConfig, TargetCoordinator};
+
+# async fn configure(page: chromiumoxide::Page) -> Result<(), Box<dyn std::error::Error>> {
+let stealth = StealthConfig::for_platform(PlatformProfile::Linux);
+stealth.apply(&page).await?;
+
+let coordinator = TargetCoordinator::new(&stealth)?;
+let mut targets = coordinator.enable(&page).await?;
+let target_page = page.clone();
+tokio::spawn(async move {
+    while let Some(event) = targets.next().await {
+        if let Err(error) = coordinator.apply(&target_page, &event).await {
+            eprintln!("target configuration failed: {error}");
+        }
+    }
+});
+
+page.goto("https://example.com").await?;
+# Ok(())
+# }
+```
+
+Chrome 151 accepts worker-target UA, language, locale, timezone, and Client Hint
+overrides, but it preserves the host value of `WorkerNavigator.platform`. A
+Windows profile running on Linux therefore remains detectably hybrid even with
+target coordination. Use the Linux profile on Linux or a native Windows browser
+when page/worker platform equality is required.
+
+### Passive network audit
+
+`NetworkAudit` correlates Chrome's native `Network` events without enabling the
+`Fetch` domain or pausing requests. Attach a bounded observer before navigation:
+
+```rust,no_run
+use chromiumoxide::Page;
+use stealth_oxide::NetworkAuditHandle;
+
+#[allow(dead_code)]
+async fn audit_page(page: &Page) -> Result<(), Box<dyn std::error::Error>> {
+let audit = NetworkAuditHandle::attach(&page).await?;
+page.goto("https://example.com").await?;
+let audit = audit.stop().await;
+println!("observed requests: {}", audit.summary().requests);
+# Ok(())
+# }
+```
+
+For lower-level integrations, `NetworkAudit` remains available: callers can
+feed events from the same page/session into the corresponding `observe_*`
+methods directly.
+
+For complete lifecycle correlation, also subscribe to `requestWillBeSent`, both
+extra-info events, `requestServedFromCache`, `loadingFinished`, and
+`loadingFailed`. Extra-info observations are retained as ordered sequences
+because CDP does not promise their ordering around redirects. Reports omit
+bodies, cookies, authorization data, remote addresses, URL credentials, query
+strings, and fragments, and retain at most 100 request lifecycles.
+
+The audit also tracks origin-scoped `Accept-CH` observations. Call
+`validate_client_hint_negotiation(&audit)` to check whether high-entropy hints
+followed policy observed earlier in the audit. Findings are warnings rather
+than contradictions when no prior opt-in was seen, since a persistent Chrome
+profile can retain Client Hint preferences from an earlier session. The
+library observes this negotiation and never adds `Sec-CH-UA-*` headers itself.
+
+Network auditing is read-only: it validates what Chrome transmitted but does
+not repair mismatches or rewrite requests. Applications that need explicit
+header additions can enable the optional `interceptor` feature and use the
+validated `HeaderPolicy` builder. Credential, cookie, hop-by-hop, and framing
+headers remain unavailable to that policy.
 
 ## Granular control
 
@@ -279,6 +394,7 @@ use stealth_oxide::{PlatformProfile, StealthConfig};
 
 # async fn example() -> anyhow::Result<()> {
 let config = BrowserConfig::builder()
+    .hide()
     .arg(("proxy-server", "http://proxy.example:8080"))
     .build()
     .map_err(anyhow::Error::msg)?;
@@ -306,8 +422,48 @@ browser.close().await?;
 # }
 ```
 
-Retries, reloads, and profile lifecycle also remain application concerns.
-`stealth-oxide` never automatically revisits a URL after a blocked response.
+## Chrome-native networking and retries
+
+The default stealth path configures Chromium but does not intercept ordinary
+requests. Chrome retains ownership of resource discovery, concurrency,
+priority, redirects, connection pooling, cookies, cache, service workers,
+HTTP/2 and HTTP/3 multiplexing, transport fallback, and native transport
+retries. The optional interceptor feature is application infrastructure and is
+not enabled by any stealth preset.
+
+`NavigationRetryPolicy` makes an application-level decision for a completed
+top-level navigation; it never sends or replays a request itself. Only `GET`,
+`HEAD`, and `OPTIONS` are automatically eligible, and only `429` and `503`
+responses are retry candidates. `Retry-After` supports both delta-seconds and
+HTTP-date values. `403` and unsafe or unknown methods are never automatically
+retried.
+
+```rust
+use std::time::{Duration, SystemTime};
+use stealth_oxide::{NavigationMethod, NavigationRetryPolicy, RetryDecision};
+
+let policy = NavigationRetryPolicy::new()
+    .max_attempts(3)
+    .max_elapsed(Duration::from_secs(120));
+let decision = policy.decide(
+    429,
+    NavigationMethod::Get,
+    Some("15"),
+    1,
+    Duration::from_secs(2),
+    SystemTime::now(),
+    0.5,
+);
+
+assert_eq!(decision, RetryDecision::RetryAfter(Duration::from_secs(15)));
+```
+
+Callers that act on `RetryAfter` should wait and navigate the same page again,
+preserving the browser process, user-data profile, proxy, cookies, cache, and
+storage. Subresources must remain under Chrome's native retry behavior.
+Retries, reloads, challenge handling, and profile lifecycle otherwise remain
+application concerns. `stealth-oxide` never automatically revisits a URL after
+a blocked response.
 
 ## Runnable examples
 
@@ -354,6 +510,24 @@ nothing. Passing an empty slice is also a no-op.
 CreepJS probes live under `tests/` as ignored browser diagnostics. See
 [`tests/README.md`](tests/README.md) for the container commands.
 
+Authorized protected-site evaluations are tracked separately in the
+[`site evaluation matrix`](docs/site-evaluation-matrix.md). The matrix records
+the tested commit, browser/runtime environment, repeated outcomes, and redacted
+evidence. It deliberately distinguishes destination-content verification from
+fingerprint-only diagnostics and does not treat an HTTP `200` as proof that a
+challenge was passed.
+
+The reproducible evaluation fixtures live under [`dev/evals/`](dev/evals/).
+See the [site evaluation matrix](docs/site-evaluation-matrix.md) for the
+recording format, repeatability requirements, and evidence rules.
+
+Recent network-fidelity work adds bounded retry decisions, redacted passive
+network auditing, transmitted-identity and Client-Hint validation, native
+Chrome language startup, Chrome-major compatibility gates, and expanded
+redirect/cache/worker/concurrency coverage. The [user-control and alignment
+plan](docs/user-control-alignment-plan.md) documents the configuration contract,
+validation rules, and next API slices.
+
 ## Container development
 
 The repository Docker environment supplies Chromium, Xvfb, Openbox, a taskbar,
@@ -383,7 +557,8 @@ working Chromium process and, for desktop tests, the container environment.
 - Patches use CDP rather than page-world JavaScript overrides.
 - CDP commands are target- and session-scoped.
 - Applying a configuration to one page does not automatically cover workers,
-  popups, service workers, or new targets.
+  popups, service workers, or new targets; `TargetCoordinator` covers supported
+  directly related targets only while its event stream is driven.
 - Native screen work area, physical GPU identity, fonts, voices, and platform
   features can depend on the host environment.
 - Successful navigation does not establish a favorable classification by a

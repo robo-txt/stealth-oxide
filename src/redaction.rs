@@ -30,10 +30,12 @@ pub fn url(value: &str) -> String {
 /// Keeps only explicitly safe response headers and bounds their values.
 pub fn safe_headers(value: &serde_json::Value) -> BTreeMap<String, String> {
     const ALLOWED: &[&str] = &[
+        "accept-ch",
         "cache-control",
         "cf-mitigated",
         "cf-ray",
         "content-type",
+        "critical-ch",
         "location",
         "server",
         "x-akamai-transformed",
@@ -93,7 +95,7 @@ mod tests {
         let headers = safe_headers(&json!({
             "Authorization": "Bearer secret",
             "Content-Type": "text/html",
-            "Location": "https://example.com/?token=secret"
+            "Location": "https://example.com/?token=secret",
         }));
         assert!(!headers.contains_key("authorization"));
         assert_eq!(headers["content-type"], "text/html");

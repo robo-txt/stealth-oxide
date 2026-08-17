@@ -60,7 +60,7 @@ fn chrome_windows_client_hints_match_user_agent() {
         .find(|brand| brand.brand == "Google Chrome")
         .expect("full client hints should include Google Chrome brand");
 
-    assert_eq!(full_chrome_brand.version, "151.0.7922.71");
+    assert_eq!(full_chrome_brand.version, "151.0.7922.138");
     assert!(
         profile
             .navigator()

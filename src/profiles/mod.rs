@@ -6,7 +6,7 @@ pub mod chrome_macos;
 pub mod chrome_windows;
 
 /// Full Chrome version modeled by the built-in profiles.
-pub const BUILT_IN_CHROME_VERSION: &str = "151.0.7922.71";
+pub const BUILT_IN_CHROME_VERSION: &str = "151.0.7922.138";
 /// Chrome major version modeled by the built-in profiles.
 pub const BUILT_IN_CHROME_MAJOR: u32 = 151;
 

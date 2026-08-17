@@ -9,6 +9,8 @@ pub mod environment;
 mod error;
 #[cfg(feature = "interceptor")]
 pub mod interceptor;
+/// Browser-native startup configuration derived from a browser profile.
+pub mod launch;
 /// Typed categories for observed Chromium network failures.
 pub mod network;
 mod patches;
@@ -16,8 +18,12 @@ mod patches;
 pub mod profiles;
 /// Shared privacy and diagnostic redaction helpers.
 pub mod redaction;
+/// Safe decisions for opt-in top-level navigation retries.
+pub mod retry;
 #[cfg(feature = "seeding")]
 mod seeding;
+/// Coordination for workers, popups, iframes, and other new CDP targets.
+pub mod targets;
 /// Read-only frame and target topology classification helpers.
 pub mod topology;
 mod validation;
@@ -34,18 +40,26 @@ pub use environment::{
     compare_voice_language, valid_device_memory_bucket,
 };
 pub use error::{Error, Result, ValidationErrors, ValidationIssue};
+pub use launch::ChromeLanguageConfig;
 pub use network::{
-    FailureCategory, classify_failure, increment_failure_count, sanitize_error_name,
+    FailureCategory, NetworkAudit, NetworkAuditHandle, NetworkAuditSummary, NetworkRequestAudit,
+    RedirectHop, classify_failure, increment_failure_count, sanitize_error_name,
+    validate_client_hint_negotiation, validate_request_identity,
 };
 pub use profiles::{
     BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION, BrowserProfile, BrowserProfileBuilder,
     ColorGamut, ColorScheme, ForcedColors, IdentityConfig, MediaFeaturesConfig, ProfileVersion,
     ReducedMotion, ScreenConfig, TouchConfig,
 };
+pub use retry::{
+    NavigationMethod, NavigationRetryPolicy, NoRetryReason, ResponseDisposition, RetryDecision,
+    classify_response, parse_retry_after,
+};
 #[cfg(feature = "seeding")]
 pub use seeding::{
     CookieSeed, IndexedDbSeed, OriginSeed, ProfileSeed, SeedReport, apply_profile_seeds,
 };
+pub use targets::{TargetApplyReport, TargetCoordinator};
 pub use topology::{Coverage, ResourceScope, classify_resource, sanitize_initiator_origin};
 pub use validation::validate_profile;
 

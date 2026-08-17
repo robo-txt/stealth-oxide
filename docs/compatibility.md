@@ -10,7 +10,7 @@ operating system, GPU, fonts, voices, or platform-only features.
 | --- | --- |
 | Rust | 1.86 minimum; latest stable is also tested |
 | Chromiumoxide | 0.9.x, beginning with 0.9.1 |
-| Built-in browser identity | Google Chrome 151.0.7922.71 |
+| Built-in browser identity | Google Chrome 151.0.7922.138 |
 | Runtime/profile matching | Same Chrome major version |
 | Required browser-test host | Debian 12 Linux container |
 | Required browser-test runtime | Chromium 151.x |
@@ -20,7 +20,7 @@ line. The lockfile is used for reproducible repository and release checks.
 
 ## Chromium versions
 
-All built-in profiles currently model Chrome 151.0.7922.71. The public
+All built-in profiles currently model Chrome 151.0.7922.138. The public
 `ProfileVersion` metadata and `compare_browser_versions` helper let an
 application compare a profile with the `product` value returned by CDP
 `Browser.getVersion`.
