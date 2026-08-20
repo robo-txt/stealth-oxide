@@ -1,13 +1,11 @@
 /target
 /eval-results/
+/tests/bypass/creepjs_*.rs
 /skills/
 /AGENTS.md
 /docs/*
 !/docs/compatibility.md
-!/docs/network-fidelity-plan.md
 !/docs/releasing.md
-!/docs/site-evaluation-matrix.md
-!/docs/user-control-alignment-plan.md
 !/docs/images/
 /docs/images/*
 !/docs/images/creepjs-full-page.png

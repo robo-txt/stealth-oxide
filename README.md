@@ -515,24 +515,6 @@ nothing. Passing an empty slice is also a no-op.
 CreepJS probes live under `tests/` as ignored browser diagnostics. See
 [`tests/README.md`](tests/README.md) for the container commands.
 
-Authorized protected-site evaluations are tracked separately in the
-[`site evaluation matrix`](docs/site-evaluation-matrix.md). The matrix records
-the tested commit, browser/runtime environment, repeated outcomes, and redacted
-evidence. It deliberately distinguishes destination-content verification from
-fingerprint-only diagnostics and does not treat an HTTP `200` as proof that a
-challenge was passed.
-
-The reproducible evaluation fixtures live under [`dev/evals/`](dev/evals/).
-See the [site evaluation matrix](docs/site-evaluation-matrix.md) for the
-recording format, repeatability requirements, and evidence rules.
-
-Recent network-fidelity work adds bounded retry decisions, redacted passive
-network auditing, transmitted-identity and Client-Hint validation, native
-Chrome language startup, Chrome-major compatibility gates, and expanded
-redirect/cache/worker/concurrency coverage. The [user-control and alignment
-plan](docs/user-control-alignment-plan.md) documents the configuration contract,
-validation rules, and next API slices.
-
 ## Container development
 
 The repository Docker environment supplies Chromium, Xvfb, Openbox, a taskbar,
