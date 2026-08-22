@@ -13,8 +13,8 @@ cargo test --doc --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
 ```
 
-Browser diagnostics require Chromium and, for desktop environment checks, the
-Docker Compose environment described in the README. Third-party fingerprinting
+Browser diagnostics require a local Chromium installation and, for desktop
+environment checks, a compatible desktop environment. Third-party fingerprinting
 sites are diagnostics rather than product guarantees.
 
 Changes to a built-in identity must keep the User-Agent, reduced Client Hints,

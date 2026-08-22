@@ -16,6 +16,3 @@
 
 # Privately supplied Windows fonts. Keep the directory instructions tracked,
 # but never commit licensed font binaries.
-/container/fonts/*.ttf
-/container/fonts/*.ttc
-/container/fonts/*.otf

@@ -9,7 +9,7 @@ use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 
 #[tokio::test]
-#[ignore = "requires the desktop container and STEALTH_OXIDE_SPEECH_DISPATCHER=1"]
+#[ignore = "requires Chromium and STEALTH_OXIDE_SPEECH_DISPATCHER=1"]
 async fn native_fonts_and_speech_are_browser_visible() -> Result<()> {
     assert!(
         matches!(

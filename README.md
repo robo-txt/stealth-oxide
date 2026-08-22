@@ -32,12 +32,10 @@ The public configuration API separates browser identity, native-value
 preservation, network observation, request-header policy, and navigation retry
 decisions. Nothing retries, intercepts, or changes a session implicitly.
 
-## Browser-test container captures
+## Browser-test captures
 
-The project container applies its coherent Windows desktop profile before page
-scripts run. Both examples wait for the report content and document height to
-stabilize before capturing the complete page. Click either preview for the
-full-resolution PNG.
+These full-page browser captures show the configured profile on representative
+diagnostic pages. Click either preview for the full-resolution PNG.
 
 <table>
   <tr>
@@ -475,12 +473,10 @@ a blocked response.
 Each example focuses on one public workflow:
 
 ```bash
-cargo run --example basic
+cargo run --example example
 cargo run --example custom_configuration
 cargo run --example custom_profile
 cargo run --features seeding --example profile_seeding
-docker compose run --rm stealth-oxide cargo run --example creepjs_screenshot
-docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
 ```
 
 - `basic`: launch Chromium, apply the recommended profile, and navigate.
@@ -488,8 +484,6 @@ docker compose run --rm stealth-oxide cargo run --example sannysoft_screenshot
 - `custom_profile`: build and apply a typed Windows desktop profile.
 - `profile_seeding`: install repeatable test state with the optional `seeding`
   feature.
-- `creepjs_screenshot` and `sannysoft_screenshot`: reproduce the full-page
-  container captures shown above.
 
 Library users must also opt in at runtime by calling `apply_profile_seeds`:
 
@@ -513,7 +507,7 @@ Omit the `seeding` feature—or simply do not call `apply_profile_seeds`—to se
 nothing. Passing an empty slice is also a no-op.
 
 Browser consistency probes live under `tests/triggers/` as ignored diagnostics.
-See [`tests/README.md`](tests/README.md) for the container commands.
+See [`tests/README.md`](tests/README.md) for the commands.
 
 Authorized protected-site evaluations are tracked separately in the
 [`site evaluation matrix`](docs/site-evaluation-matrix.md). The matrix records
@@ -533,17 +527,6 @@ redirect/cache/worker/concurrency coverage. The [user-control and alignment
 plan](docs/user-control-alignment-plan.md) documents the configuration contract,
 validation rules, and next API slices.
 
-## Container development
-
-The repository Docker environment supplies Chromium, Xvfb, Openbox, a taskbar,
-and Mesa llvmpipe for integration tests. These assets are excluded from the
-published crate archive.
-
-```bash
-docker compose build
-docker compose run --rm stealth-oxide
-```
-
 ## Verification
 
 ```bash
@@ -555,7 +538,7 @@ cargo package
 ```
 
 Real-browser integration tests are ignored by default because they require a
-working Chromium process and, for desktop tests, the container environment.
+working local Chromium process and a compatible desktop environment.
 
 ## Scope and limitations
 
