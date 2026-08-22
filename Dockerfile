@@ -79,4 +79,4 @@ USER stealth
 RUN cargo build --tests --examples
 
 ENTRYPOINT ["/usr/local/bin/stealth-oxide-entrypoint"]
-CMD ["cargo", "test", "--test", "bypass", "bypass::device_environment", "--", "--ignored", "--nocapture"]
+CMD ["cargo", "test", "--test", "triggers", "triggers::device_environment", "--", "--ignored", "--nocapture"]

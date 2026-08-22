@@ -512,8 +512,8 @@ apply_profile_seeds(page, &seeds).await?;
 Omit the `seeding` feature—or simply do not call `apply_profile_seeds`—to seed
 nothing. Passing an empty slice is also a no-op.
 
-CreepJS probes live under `tests/` as ignored browser diagnostics. See
-[`tests/README.md`](tests/README.md) for the container commands.
+Browser consistency probes live under `tests/triggers/` as ignored diagnostics.
+See [`tests/README.md`](tests/README.md) for the container commands.
 
 Authorized protected-site evaluations are tracked separately in the
 [`site evaluation matrix`](docs/site-evaluation-matrix.md). The matrix records

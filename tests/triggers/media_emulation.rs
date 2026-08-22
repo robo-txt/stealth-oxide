@@ -6,7 +6,7 @@ use futures::StreamExt;
 use serde_json::Value;
 use tokio::time::timeout;
 
-const CREEPJS_URL: &str = "https://abrahamjuliot.github.io/creepjs/";
+const MEDIA_PROBE_URL: &str = "https://example.com/";
 
 #[tokio::test]
 #[ignore = "requires local Chromium with fake media-device support"]
@@ -34,7 +34,7 @@ async fn chromium_fake_media_flags_expose_audio_and_video_devices() -> Result<()
         }
     });
 
-    let page = timeout(Duration::from_secs(20), browser.new_page(CREEPJS_URL))
+    let page = timeout(Duration::from_secs(20), browser.new_page(MEDIA_PROBE_URL))
         .await
         .context("timed out while opening the media probe")??;
     let observed: Value = timeout(
