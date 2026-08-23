@@ -7,6 +7,7 @@ All notable user-visible changes to this project are documented here.
 - Added native hardware-concurrency, permission, and geolocation controls.
 - Added validation and live-trigger coverage for browser-context permissions
   and page geolocation overrides.
+- Added a structured site diagnostic example for cross-context profile checks.
 
 ## [0.1.2] - 2026-08-22
 

@@ -292,6 +292,18 @@ page.goto("https://example.com").await?;
 The application must keep driving the event stream. This makes target
 coverage explicit instead of hiding a runtime task inside the library.
 
+For a structured comparison across sites, run the repository diagnostic
+example. It uses the Windows profile, records navigation and context
+mismatches, and reports CreepJS percentage signals without emitting its
+fingerprint identifier or network candidates:
+
+```text
+STEALTH_OXIDE_DIAGNOSTIC_WAIT=6 cargo run --example site_diagnostic -- \
+  https://example.com/ \
+  https://abrahamjuliot.github.io/creepjs/ \
+  https://stackoverflow.com/
+```
+
 ## Network observation
 
 `NetworkAudit` is a passive, bounded observer for Chromium network events. It
