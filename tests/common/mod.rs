@@ -106,6 +106,11 @@ impl TestBrowser {
         })
     }
 
+    pub async fn apply_browser_stealth(&self, stealth: &StealthConfig) -> Result<()> {
+        stealth.apply_browser(&self.browser).await?;
+        Ok(())
+    }
+
     pub async fn version(&self) -> Result<String> {
         Ok(self.browser.version().await?.product)
     }

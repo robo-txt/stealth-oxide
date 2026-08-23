@@ -28,7 +28,7 @@ pub mod targets;
 pub mod topology;
 mod validation;
 
-use chromiumoxide::Page;
+use chromiumoxide::{Browser, Page};
 
 pub use compatibility::{CompatibilityStatus, compare_browser_versions};
 pub use config::{
@@ -48,8 +48,9 @@ pub use network::{
 };
 pub use profiles::{
     BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION, BrowserProfile, BrowserProfileBuilder,
-    ColorGamut, ColorScheme, ForcedColors, HardwareProfile, IdentityConfig, MediaFeaturesConfig,
-    ProfileVersion, ReducedMotion, ScreenConfig, TouchConfig,
+    ColorGamut, ColorScheme, ForcedColors, GeolocationConfig, HardwareProfile, IdentityConfig,
+    MediaFeaturesConfig, PermissionOverride, PermissionSetting, ProfileVersion, ReducedMotion,
+    ScreenConfig, TouchConfig,
 };
 pub use retry::{
     NavigationMethod, NavigationRetryPolicy, NoRetryReason, ResponseDisposition, RetryDecision,
@@ -87,6 +88,11 @@ impl StealthConfig {
         let mut report = ApplyReport::default();
         if self.policy() == ConsistencyPolicy::Warn {
             report.warnings = issues;
+        }
+        if matches!(self.permissions_mode(), PatchMode::Override(_)) {
+            return Err(Error::BrowserRequired {
+                patch: Patch::Permissions,
+            });
         }
 
         apply_mode(self.locale_mode(), Patch::Locale, &mut report, |value| {
@@ -129,7 +135,48 @@ impl StealthConfig {
             patches::touch::apply(page, value)
         })
         .await?;
+        apply_mode(
+            self.geolocation_mode(),
+            Patch::Geolocation,
+            &mut report,
+            |value| patches::geolocation::apply(page, value),
+        )
+        .await?;
 
+        Ok(report)
+    }
+
+    /// Validates and applies this configuration's browser-context permission
+    /// overrides through Chromium's native Browser domain.
+    ///
+    /// Permission commands must be sent through [`Browser`], while page
+    /// emulation commands are applied with [`Self::apply`]. Call this before
+    /// navigating the page whose origin is covered by the permission policy.
+    pub async fn apply_browser(&self, browser: &Browser) -> Result<ApplyReport> {
+        let plan = self.plan();
+        let issues = plan.issues().to_vec();
+        if self.policy() == ConsistencyPolicy::Strict && !issues.is_empty() {
+            return Err(Error::Validation {
+                issues: issues.into(),
+            });
+        }
+
+        let mut report = ApplyReport::default();
+        if self.policy() == ConsistencyPolicy::Warn {
+            report.warnings = issues;
+        }
+        apply_mode(
+            self.permissions_mode(),
+            Patch::Permissions,
+            &mut report,
+            |permissions| async move {
+                for permission in permissions {
+                    patches::permissions::apply(browser, permission).await?;
+                }
+                Ok(())
+            },
+        )
+        .await?;
         Ok(report)
     }
 }

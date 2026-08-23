@@ -1,8 +1,9 @@
 use stealth_oxide::profiles::chrome_linux::chrome_linux;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 use stealth_oxide::{
-    ApplyReport, BrowserProfileBuilder, ColorScheme, ConsistencyPolicy, Error, Patch, PatchMode,
-    PatchState, PlatformProfile, StealthConfig,
+    ApplyReport, BrowserProfileBuilder, ColorScheme, ConsistencyPolicy, Error, GeolocationConfig,
+    Patch, PatchMode, PatchState, PermissionOverride, PermissionSetting, PlatformProfile,
+    StealthConfig,
 };
 
 #[test]
@@ -22,6 +23,8 @@ fn none_disables_every_patch() {
         Patch::MediaFeatures,
         Patch::Touch,
         Patch::HardwareConcurrency,
+        Patch::Permissions,
+        Patch::Geolocation,
     ] {
         assert_eq!(config.patch_state(patch), PatchState::Disabled);
     }
@@ -77,6 +80,8 @@ fn patch_plan_order_is_deterministic() {
             Patch::Screen,
             Patch::MediaFeatures,
             Patch::Touch,
+            Patch::Geolocation,
+            Patch::Permissions,
         ]
     );
 }
@@ -140,6 +145,39 @@ fn rejects_zero_hardware_concurrency_before_launching_chromium() {
         issue,
         stealth_oxide::ValidationIssue::InvalidHardwareConcurrency
     )));
+}
+
+#[test]
+fn configures_native_permission_and_geolocation_controls() {
+    let config = StealthConfig::none()
+        .permission(PermissionOverride::for_origin(
+            "geolocation",
+            PermissionSetting::Granted,
+            "https://example.com",
+        ))
+        .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
+
+    assert_eq!(config.patch_state(Patch::Permissions), PatchState::Override);
+    assert_eq!(config.patch_state(Patch::Geolocation), PatchState::Override);
+    assert_eq!(config.permissions_override().unwrap().len(), 1);
+    assert_eq!(
+        config.geolocation_override().unwrap().latitude,
+        Some(40.7128)
+    );
+    assert!(config.validation_issues().is_empty());
+}
+
+#[test]
+fn rejects_invalid_native_permission_and_geolocation_values() {
+    let config = StealthConfig::none()
+        .permission(PermissionOverride::for_origin(
+            "geolocation",
+            PermissionSetting::Granted,
+            "not-an-origin",
+        ))
+        .geolocation(GeolocationConfig::position(91.0, 0.0, 0.0));
+
+    assert_eq!(config.validation_issues().len(), 2);
 }
 
 #[test]

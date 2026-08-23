@@ -7,8 +7,8 @@
 
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::emulation::{
-    SetHardwareConcurrencyOverrideParams, SetLocaleOverrideParams, SetTimezoneOverrideParams,
-    SetUserAgentOverrideParams,
+    SetGeolocationOverrideParams, SetHardwareConcurrencyOverrideParams, SetLocaleOverrideParams,
+    SetTimezoneOverrideParams, SetUserAgentOverrideParams,
 };
 use chromiumoxide::cdp::browser_protocol::target::{
     EventAttachedToTarget, FilterEntry, SessionId, SetAutoAttachParams, TargetFilter,
@@ -64,13 +64,15 @@ impl TargetApplyReport {
     }
 }
 
-/// Applies target-scoped identity, locale, and timezone commands to new targets.
+/// Applies target-scoped identity, locale, timezone, hardware, and geolocation
+/// commands to new targets.
 #[derive(Debug, Clone)]
 pub struct TargetCoordinator {
     locale: Option<SetLocaleOverrideParams>,
     timezone: Option<SetTimezoneOverrideParams>,
     identity: Option<SetUserAgentOverrideParams>,
     hardware_concurrency: Option<SetHardwareConcurrencyOverrideParams>,
+    geolocation: Option<SetGeolocationOverrideParams>,
 }
 
 impl TargetCoordinator {
@@ -92,11 +94,16 @@ impl TargetCoordinator {
             PatchMode::Override(value) => Some(crate::patches::hardware::params(*value)?),
             PatchMode::Native | PatchMode::Disabled => None,
         };
+        let geolocation = match config.geolocation_mode() {
+            PatchMode::Override(value) => Some(crate::patches::geolocation::params(value)),
+            PatchMode::Native | PatchMode::Disabled => None,
+        };
         Ok(Self {
             locale,
             timezone,
             identity,
             hardware_concurrency,
+            geolocation,
         })
     }
 
@@ -137,12 +144,16 @@ impl TargetCoordinator {
         Ok(())
     }
 
-    /// Number of emulation commands configured for each supported target.
+    /// Number of target-scoped emulation commands configured for a page target.
+    ///
+    /// Geolocation is intentionally sent only to page and OOPIF targets;
+    /// worker targets receive the identity and hardware commands they support.
     pub fn configured_commands(&self) -> usize {
         usize::from(self.locale.is_some())
             + usize::from(self.timezone.is_some())
             + usize::from(self.identity.is_some())
             + usize::from(self.hardware_concurrency.is_some())
+            + usize::from(self.geolocation.is_some())
     }
 
     /// Applies configured commands to one paused target and always resumes it.
@@ -188,6 +199,15 @@ impl TargetCoordinator {
             }
             if command_error.is_none() {
                 if let Some(command) = &self.hardware_concurrency {
+                    match send_nested(page, &event.session_id, next_id, command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
+                }
+            }
+            if command_error.is_none() && matches!(target_type.as_str(), "page" | "iframe") {
+                if let Some(command) = &self.geolocation {
                     match send_nested(page, &event.session_id, next_id, command).await {
                         Ok(()) => applied_commands += 1,
                         Err(error) => command_error = Some(error),
@@ -258,7 +278,7 @@ async fn send_nested<T: Method + Serialize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PlatformProfile;
+    use crate::{GeolocationConfig, PlatformProfile};
 
     #[test]
     fn complete_profile_configures_locale_timezone_identity_and_hardware() -> Result<()> {
@@ -266,6 +286,8 @@ mod tests {
         assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 3);
         let config = config.hardware_concurrency(8);
         assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 4);
+        let config = config.geolocation(GeolocationConfig::position(40.0, -74.0, 25.0));
+        assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 5);
         Ok(())
     }
 

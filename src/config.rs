@@ -3,8 +3,9 @@ use crate::profiles::chrome_linux::chrome_linux;
 use crate::profiles::chrome_macos::chrome_macos;
 use crate::profiles::chrome_windows::chrome_windows;
 use crate::profiles::{
-    BrowserProfile, ColorGamut, ColorScheme, ForcedColors, MediaFeaturesConfig, NavigatorProfile,
-    ReducedMotion, ScreenConfig, TouchConfig, UserAgentClientHintsProfile,
+    BrowserProfile, ColorGamut, ColorScheme, ForcedColors, GeolocationConfig, MediaFeaturesConfig,
+    NavigatorProfile, PermissionOverride, ReducedMotion, ScreenConfig, TouchConfig,
+    UserAgentClientHintsProfile,
 };
 
 /// Built-in desktop profile selection.
@@ -36,6 +37,10 @@ pub enum Patch {
     Touch,
     /// Native logical-processor-count override.
     HardwareConcurrency,
+    /// Native browser-context permission overrides.
+    Permissions,
+    /// Native geolocation position or unavailable-state override.
+    Geolocation,
 }
 
 /// Controls how one patch obtains its value.
@@ -94,6 +99,8 @@ pub struct StealthConfig {
     media_features: PatchMode<MediaFeaturesConfig>,
     touch: PatchMode<TouchConfig>,
     hardware_concurrency: PatchMode<u32>,
+    permissions: PatchMode<Vec<PermissionOverride>>,
+    geolocation: PatchMode<GeolocationConfig>,
     policy: ConsistencyPolicy,
     defaults: BrowserProfile,
 }
@@ -110,6 +117,8 @@ impl StealthConfig {
             media_features: PatchMode::Disabled,
             touch: PatchMode::Disabled,
             hardware_concurrency: PatchMode::Disabled,
+            permissions: PatchMode::Disabled,
+            geolocation: PatchMode::Disabled,
             policy: ConsistencyPolicy::Strict,
             defaults,
         }
@@ -132,6 +141,8 @@ impl StealthConfig {
             // Keep the host value by default. This experimental CDP override is
             // opt-in because a profile should not silently contradict Chromium.
             hardware_concurrency: PatchMode::Native,
+            permissions: PatchMode::Native,
+            geolocation: PatchMode::Native,
             policy: ConsistencyPolicy::Strict,
             defaults: profile,
         }
@@ -163,6 +174,7 @@ impl StealthConfig {
                 self.hardware_concurrency =
                     PatchMode::Override(self.defaults.hardware.hardware_concurrency);
             }
+            Patch::Permissions | Patch::Geolocation => {}
         }
         self
     }
@@ -177,6 +189,8 @@ impl StealthConfig {
             Patch::MediaFeatures => self.media_features = PatchMode::Disabled,
             Patch::Touch => self.touch = PatchMode::Disabled,
             Patch::HardwareConcurrency => self.hardware_concurrency = PatchMode::Disabled,
+            Patch::Permissions => self.permissions = PatchMode::Disabled,
+            Patch::Geolocation => self.geolocation = PatchMode::Disabled,
         }
         self
     }
@@ -191,6 +205,8 @@ impl StealthConfig {
             Patch::MediaFeatures => self.media_features = PatchMode::Native,
             Patch::Touch => self.touch = PatchMode::Native,
             Patch::HardwareConcurrency => self.hardware_concurrency = PatchMode::Native,
+            Patch::Permissions => self.permissions = PatchMode::Native,
+            Patch::Geolocation => self.geolocation = PatchMode::Native,
         }
         self
     }
@@ -349,6 +365,49 @@ impl StealthConfig {
         self
     }
 
+    /// Replaces the native browser-context permission overrides.
+    pub fn permissions<I>(mut self, permissions: I) -> Self
+    where
+        I: IntoIterator<Item = PermissionOverride>,
+    {
+        self.permissions = PatchMode::Override(permissions.into_iter().collect());
+        self
+    }
+
+    /// Sets the complete permission patch mode.
+    pub fn permissions_patch(mut self, mode: PatchMode<Vec<PermissionOverride>>) -> Self {
+        self.permissions = mode;
+        self
+    }
+
+    /// Adds one native browser-context permission override.
+    pub fn permission(mut self, permission: PermissionOverride) -> Self {
+        let permissions = match &mut self.permissions {
+            PatchMode::Override(permissions) => permissions,
+            PatchMode::Native | PatchMode::Disabled => {
+                self.permissions = PatchMode::Override(Vec::new());
+                let PatchMode::Override(permissions) = &mut self.permissions else {
+                    unreachable!("permissions was replaced with an override")
+                };
+                permissions
+            }
+        };
+        permissions.push(permission);
+        self
+    }
+
+    /// Replaces the native geolocation override.
+    pub fn geolocation(mut self, geolocation: GeolocationConfig) -> Self {
+        self.geolocation = PatchMode::Override(geolocation);
+        self
+    }
+
+    /// Sets the complete geolocation patch mode.
+    pub fn geolocation_patch(mut self, mode: PatchMode<GeolocationConfig>) -> Self {
+        self.geolocation = mode;
+        self
+    }
+
     /// Returns the selected consistency policy.
     pub const fn policy(&self) -> ConsistencyPolicy {
         self.policy
@@ -364,6 +423,8 @@ impl StealthConfig {
             Patch::MediaFeatures => state(&self.media_features),
             Patch::Touch => state(&self.touch),
             Patch::HardwareConcurrency => state(&self.hardware_concurrency),
+            Patch::Permissions => state(&self.permissions),
+            Patch::Geolocation => state(&self.geolocation),
         }
     }
 
@@ -377,6 +438,8 @@ impl StealthConfig {
             Patch::Screen,
             Patch::MediaFeatures,
             Patch::Touch,
+            Patch::Geolocation,
+            Patch::Permissions,
         ]
         .into_iter()
         .map(|patch| (patch, self.patch_state(patch)))
@@ -427,6 +490,16 @@ impl StealthConfig {
         override_value(&self.hardware_concurrency).copied()
     }
 
+    /// Returns the configured native permission overrides, if enabled.
+    pub fn permissions_override(&self) -> Option<&[PermissionOverride]> {
+        override_value(&self.permissions).map(Vec::as_slice)
+    }
+
+    /// Returns the configured native geolocation override, if enabled.
+    pub fn geolocation_override(&self) -> Option<&GeolocationConfig> {
+        override_value(&self.geolocation)
+    }
+
     pub(crate) fn identity_mode(&self) -> &PatchMode<NavigatorProfile> {
         &self.identity
     }
@@ -453,6 +526,14 @@ impl StealthConfig {
 
     pub(crate) fn hardware_concurrency_mode(&self) -> &PatchMode<u32> {
         &self.hardware_concurrency
+    }
+
+    pub(crate) fn permissions_mode(&self) -> &PatchMode<Vec<PermissionOverride>> {
+        &self.permissions
+    }
+
+    pub(crate) fn geolocation_mode(&self) -> &PatchMode<GeolocationConfig> {
+        &self.geolocation
     }
 
     fn identity_value_mut(&mut self) -> &mut NavigatorProfile {

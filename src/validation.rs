@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use crate::config::{PatchMode, StealthConfig};
 use crate::error::{Error, Result, ValidationIssue};
-use crate::profiles::{BrowserProfile, NavigatorProfile, ScreenConfig};
+use crate::profiles::{
+    BrowserProfile, GeolocationConfig, NavigatorProfile, PermissionOverride, ScreenConfig,
+};
+use url::Url;
 
 pub(crate) fn validate_config(config: &StealthConfig) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
@@ -40,8 +43,95 @@ pub(crate) fn validate_config(config: &StealthConfig) -> Vec<ValidationIssue> {
     {
         issues.push(ValidationIssue::InvalidHardwareConcurrency);
     }
+    if let PatchMode::Override(permissions) = config.permissions_mode() {
+        validate_permissions(permissions, &mut issues);
+    }
+    if let PatchMode::Override(geolocation) = config.geolocation_mode() {
+        validate_geolocation(geolocation, &mut issues);
+    }
 
     issues
+}
+
+fn validate_permissions(permissions: &[PermissionOverride], issues: &mut Vec<ValidationIssue>) {
+    for permission in permissions {
+        if permission.name.trim().is_empty() {
+            issues.push(ValidationIssue::InvalidPermission { field: "name" });
+        }
+        if let Some(origin) = permission.origin.as_deref() {
+            validate_origin(origin, "origin", issues);
+        }
+        if let Some(origin) = permission.embedded_origin.as_deref() {
+            validate_origin(origin, "embedded origin", issues);
+        }
+    }
+}
+
+fn validate_origin(origin: &str, field: &'static str, issues: &mut Vec<ValidationIssue>) {
+    let valid = Url::parse(origin).is_ok_and(|url| {
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && (url.path().is_empty() || url.path() == "/")
+    });
+    if !valid {
+        issues.push(ValidationIssue::InvalidPermission { field });
+    }
+}
+
+fn validate_geolocation(geolocation: &GeolocationConfig, issues: &mut Vec<ValidationIssue>) {
+    let complete_position = geolocation.latitude.is_some()
+        && geolocation.longitude.is_some()
+        && geolocation.accuracy.is_some();
+    let unavailable = geolocation.latitude.is_none()
+        && geolocation.longitude.is_none()
+        && geolocation.accuracy.is_none();
+    if !complete_position && !unavailable {
+        issues.push(ValidationIssue::InvalidGeolocation {
+            field: "latitude, longitude, and accuracy must be set together",
+        });
+        return;
+    }
+    if let Some(latitude) = geolocation.latitude
+        && (!latitude.is_finite() || !(-90.0..=90.0).contains(&latitude))
+    {
+        issues.push(ValidationIssue::InvalidGeolocation { field: "latitude" });
+    }
+    if let Some(longitude) = geolocation.longitude
+        && (!longitude.is_finite() || !(-180.0..=180.0).contains(&longitude))
+    {
+        issues.push(ValidationIssue::InvalidGeolocation { field: "longitude" });
+    }
+    if let Some(accuracy) = geolocation.accuracy
+        && (!accuracy.is_finite() || accuracy < 0.0)
+    {
+        issues.push(ValidationIssue::InvalidGeolocation { field: "accuracy" });
+    }
+    if let Some(altitude) = geolocation.altitude
+        && !altitude.is_finite()
+    {
+        issues.push(ValidationIssue::InvalidGeolocation { field: "altitude" });
+    }
+    if let Some(altitude_accuracy) = geolocation.altitude_accuracy
+        && (!altitude_accuracy.is_finite() || altitude_accuracy < 0.0)
+    {
+        issues.push(ValidationIssue::InvalidGeolocation {
+            field: "altitude accuracy",
+        });
+    }
+    if let Some(heading) = geolocation.heading
+        && (!heading.is_finite() || !(0.0..360.0).contains(&heading))
+    {
+        issues.push(ValidationIssue::InvalidGeolocation { field: "heading" });
+    }
+    if let Some(speed) = geolocation.speed
+        && (!speed.is_finite() || speed < 0.0)
+    {
+        issues.push(ValidationIssue::InvalidGeolocation { field: "speed" });
+    }
 }
 
 fn validate_screen(screen: &ScreenConfig, issues: &mut Vec<ValidationIssue>) {

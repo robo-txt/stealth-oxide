@@ -68,6 +68,133 @@ pub struct HardwareProfile {
     pub hardware_concurrency: u32,
 }
 
+/// Permission setting understood by Chromium's native Browser domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionSetting {
+    /// Allow the permission without prompting.
+    Granted,
+    /// Deny the permission without prompting.
+    Denied,
+    /// Restore the browser's prompt/default behavior.
+    Prompt,
+}
+
+/// Origin-scoped native permission override.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionOverride {
+    /// Chromium permission name, such as `geolocation` or `notifications`.
+    pub name: String,
+    /// Native permission setting.
+    pub setting: PermissionSetting,
+    /// Embedding origin. `None` applies to all origins in the browser context.
+    pub origin: Option<String>,
+    /// Optional embedded origin for embedded-origin policy decisions.
+    pub embedded_origin: Option<String>,
+}
+
+impl PermissionOverride {
+    /// Creates an origin-scoped permission override.
+    pub fn for_origin(
+        name: impl Into<String>,
+        setting: PermissionSetting,
+        origin: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            setting,
+            origin: Some(origin.into()),
+            embedded_origin: None,
+        }
+    }
+
+    /// Creates a browser-context-wide permission override.
+    pub fn all_origins(name: impl Into<String>, setting: PermissionSetting) -> Self {
+        Self {
+            name: name.into(),
+            setting,
+            origin: None,
+            embedded_origin: None,
+        }
+    }
+
+    /// Adds an embedded-origin restriction to the override.
+    pub fn embedded_origin(mut self, origin: impl Into<String>) -> Self {
+        self.embedded_origin = Some(origin.into());
+        self
+    }
+}
+
+/// Native geolocation position or unavailable-state override.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeolocationConfig {
+    /// Mock latitude, or `None` to emulate an unavailable position.
+    pub latitude: Option<f64>,
+    /// Mock longitude, or `None` to emulate an unavailable position.
+    pub longitude: Option<f64>,
+    /// Mock accuracy in meters, or `None` to emulate an unavailable position.
+    pub accuracy: Option<f64>,
+    /// Optional mock altitude in meters.
+    pub altitude: Option<f64>,
+    /// Optional mock altitude accuracy in meters.
+    pub altitude_accuracy: Option<f64>,
+    /// Optional mock heading in degrees.
+    pub heading: Option<f64>,
+    /// Optional mock speed in meters per second.
+    pub speed: Option<f64>,
+}
+
+impl GeolocationConfig {
+    /// Creates a complete native position override.
+    pub const fn position(latitude: f64, longitude: f64, accuracy: f64) -> Self {
+        Self {
+            latitude: Some(latitude),
+            longitude: Some(longitude),
+            accuracy: Some(accuracy),
+            altitude: None,
+            altitude_accuracy: None,
+            heading: None,
+            speed: None,
+        }
+    }
+
+    /// Creates the native position-unavailable override.
+    pub const fn unavailable() -> Self {
+        Self {
+            latitude: None,
+            longitude: None,
+            accuracy: None,
+            altitude: None,
+            altitude_accuracy: None,
+            heading: None,
+            speed: None,
+        }
+    }
+
+    /// Adds optional altitude data.
+    pub const fn altitude(mut self, value: f64) -> Self {
+        self.altitude = Some(value);
+        self
+    }
+
+    /// Adds optional altitude accuracy data.
+    pub const fn altitude_accuracy(mut self, value: f64) -> Self {
+        self.altitude_accuracy = Some(value);
+        self
+    }
+
+    /// Adds optional heading data.
+    pub const fn heading(mut self, value: f64) -> Self {
+        self.heading = Some(value);
+        self
+    }
+
+    /// Adds optional speed data.
+    pub const fn speed(mut self, value: f64) -> Self {
+        self.speed = Some(value);
+        self
+    }
+}
+
 impl HardwareProfile {
     /// Creates a hardware profile with the supplied logical processor count.
     pub const fn new(hardware_concurrency: u32) -> Self {
