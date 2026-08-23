@@ -6,6 +6,20 @@ All notable user-visible changes to this project are documented here.
 
 No unreleased changes.
 
+## [0.1.2] - 2026-08-22
+
+### Changed
+
+- Simplified the published package and refreshed the GitHub README around the
+  crate's supported browser-configuration workflows.
+- Renamed browser diagnostics under `tests/triggers/` and removed evaluation-
+  only report fixtures from the package.
+
+### Removed
+
+- Repository-only container tooling and documentation assets from the release
+  workflow and published package.
+
 ## [0.1.1] - 2026-08-16
 
 ### Added
