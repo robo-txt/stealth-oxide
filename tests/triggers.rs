@@ -11,6 +11,7 @@ mod triggers {
 
     mod device_environment;
     mod font_speech_environment;
+    mod hardware_concurrency;
     mod headless_emulation;
     mod media_emulation;
     mod screen_emulation;

@@ -7,7 +7,8 @@
 
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::emulation::{
-    SetLocaleOverrideParams, SetTimezoneOverrideParams, SetUserAgentOverrideParams,
+    SetHardwareConcurrencyOverrideParams, SetLocaleOverrideParams, SetTimezoneOverrideParams,
+    SetUserAgentOverrideParams,
 };
 use chromiumoxide::cdp::browser_protocol::target::{
     EventAttachedToTarget, FilterEntry, SessionId, SetAutoAttachParams, TargetFilter,
@@ -69,6 +70,7 @@ pub struct TargetCoordinator {
     locale: Option<SetLocaleOverrideParams>,
     timezone: Option<SetTimezoneOverrideParams>,
     identity: Option<SetUserAgentOverrideParams>,
+    hardware_concurrency: Option<SetHardwareConcurrencyOverrideParams>,
 }
 
 impl TargetCoordinator {
@@ -86,10 +88,15 @@ impl TargetCoordinator {
             PatchMode::Override(value) => Some(target_identity_params(value)?),
             PatchMode::Native | PatchMode::Disabled => None,
         };
+        let hardware_concurrency = match config.hardware_concurrency_mode() {
+            PatchMode::Override(value) => Some(crate::patches::hardware::params(*value)?),
+            PatchMode::Native | PatchMode::Disabled => None,
+        };
         Ok(Self {
             locale,
             timezone,
             identity,
+            hardware_concurrency,
         })
     }
 
@@ -135,6 +142,7 @@ impl TargetCoordinator {
         usize::from(self.locale.is_some())
             + usize::from(self.timezone.is_some())
             + usize::from(self.identity.is_some())
+            + usize::from(self.hardware_concurrency.is_some())
     }
 
     /// Applies configured commands to one paused target and always resumes it.
@@ -171,6 +179,15 @@ impl TargetCoordinator {
             }
             if command_error.is_none() {
                 if let Some(command) = &self.identity {
+                    match send_nested(page, &event.session_id, next_id, command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
+                }
+            }
+            if command_error.is_none() {
+                if let Some(command) = &self.hardware_concurrency {
                     match send_nested(page, &event.session_id, next_id, command).await {
                         Ok(()) => applied_commands += 1,
                         Err(error) => command_error = Some(error),
@@ -244,9 +261,11 @@ mod tests {
     use crate::PlatformProfile;
 
     #[test]
-    fn complete_profile_configures_locale_timezone_and_identity() -> Result<()> {
+    fn complete_profile_configures_locale_timezone_identity_and_hardware() -> Result<()> {
         let config = StealthConfig::for_platform(PlatformProfile::Linux);
         assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 3);
+        let config = config.hardware_concurrency(8);
+        assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 4);
         Ok(())
     }
 

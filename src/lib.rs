@@ -48,8 +48,8 @@ pub use network::{
 };
 pub use profiles::{
     BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION, BrowserProfile, BrowserProfileBuilder,
-    ColorGamut, ColorScheme, ForcedColors, IdentityConfig, MediaFeaturesConfig, ProfileVersion,
-    ReducedMotion, ScreenConfig, TouchConfig,
+    ColorGamut, ColorScheme, ForcedColors, HardwareProfile, IdentityConfig, MediaFeaturesConfig,
+    ProfileVersion, ReducedMotion, ScreenConfig, TouchConfig,
 };
 pub use retry::{
     NavigationMethod, NavigationRetryPolicy, NoRetryReason, ResponseDisposition, RetryDecision,
@@ -105,6 +105,13 @@ impl StealthConfig {
             Patch::Identity,
             &mut report,
             |value| patches::identity::apply(page, value),
+        )
+        .await?;
+        apply_mode(
+            self.hardware_concurrency_mode(),
+            Patch::HardwareConcurrency,
+            &mut report,
+            |value| patches::hardware::apply(page, *value),
         )
         .await?;
         apply_mode(self.screen_mode(), Patch::Screen, &mut report, |value| {

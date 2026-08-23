@@ -61,6 +61,9 @@ pub enum ValidationIssue {
     /// Touch state and point count disagree.
     #[error("touch configuration is contradictory")]
     TouchContradiction,
+    /// The logical processor count is invalid for Chromium's native override.
+    #[error("hardware concurrency must be greater than zero")]
+    InvalidHardwareConcurrency,
     /// User agent, navigator platform, and Client Hints platform disagree.
     #[error("user agent, navigator platform, and UA Client Hints platform disagree")]
     PlatformMismatch,

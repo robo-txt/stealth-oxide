@@ -1,3 +1,4 @@
+pub(crate) mod hardware;
 pub(crate) mod identity;
 pub(crate) mod locale;
 pub(crate) mod media_features;

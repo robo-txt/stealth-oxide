@@ -35,6 +35,11 @@ pub(crate) fn validate_config(config: &StealthConfig) -> Vec<ValidationIssue> {
             issues.push(ValidationIssue::TouchContradiction);
         }
     }
+    if let PatchMode::Override(hardware_concurrency) = config.hardware_concurrency_mode()
+        && *hardware_concurrency == 0
+    {
+        issues.push(ValidationIssue::InvalidHardwareConcurrency);
+    }
 
     issues
 }

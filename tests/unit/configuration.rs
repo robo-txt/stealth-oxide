@@ -21,6 +21,7 @@ fn none_disables_every_patch() {
         Patch::Screen,
         Patch::MediaFeatures,
         Patch::Touch,
+        Patch::HardwareConcurrency,
     ] {
         assert_eq!(config.patch_state(patch), PatchState::Disabled);
     }
@@ -72,6 +73,7 @@ fn patch_plan_order_is_deterministic() {
             Patch::Locale,
             Patch::Timezone,
             Patch::Identity,
+            Patch::HardwareConcurrency,
             Patch::Screen,
             Patch::MediaFeatures,
             Patch::Touch,
@@ -92,12 +94,14 @@ fn supports_playwright_style_patch_selection() {
     let config = StealthConfig::none()
         .enable(Patch::Identity)
         .enable(Patch::Timezone)
+        .enable(Patch::HardwareConcurrency)
         .use_native(Patch::Screen)
         .disable(Patch::Touch)
         .consistency_policy(ConsistencyPolicy::Warn);
 
     assert_eq!(config.policy(), ConsistencyPolicy::Warn);
     assert_eq!(config.patch_state(Patch::Identity), PatchState::Override);
+    assert_eq!(config.hardware_concurrency_override(), Some(8));
     assert_eq!(config.patch_state(Patch::Screen), PatchState::Native);
     assert_eq!(config.patch_state(Patch::Touch), PatchState::Disabled);
 }
@@ -126,6 +130,16 @@ fn detects_touch_contradictions_before_launching_chromium() {
     let config = StealthConfig::none().touch(true, 0);
 
     assert_eq!(config.validation_issues().len(), 1);
+}
+
+#[test]
+fn rejects_zero_hardware_concurrency_before_launching_chromium() {
+    let config = StealthConfig::none().hardware_concurrency(0);
+
+    assert!(config.validation_issues().iter().any(|issue| matches!(
+        issue,
+        stealth_oxide::ValidationIssue::InvalidHardwareConcurrency
+    )));
 }
 
 #[test]
@@ -165,5 +179,22 @@ fn customizes_a_preset_without_breaking_coupled_locale_fields() -> stealth_oxide
     assert_eq!(profile.navigator().languages[0], "en-CA");
     assert_eq!(profile.locale().timezone, "America/Toronto");
     assert_eq!(profile.screen().device_scale_factor, 1.25);
+    assert_eq!(profile.hardware().hardware_concurrency, 8);
+    Ok(())
+}
+
+#[test]
+fn customizes_hardware_concurrency_as_profile_data() -> stealth_oxide::Result<()> {
+    let profile = BrowserProfileBuilder::new(chrome_linux())
+        .hardware_concurrency(12)
+        .build()?;
+
+    assert_eq!(profile.hardware().hardware_concurrency, 12);
+    assert_eq!(
+        StealthConfig::from_profile(profile)
+            .enable(Patch::HardwareConcurrency)
+            .hardware_concurrency_override(),
+        Some(12)
+    );
     Ok(())
 }

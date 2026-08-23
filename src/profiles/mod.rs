@@ -61,6 +61,22 @@ pub(crate) fn us_eastern_locale() -> LocaleProfile {
     }
 }
 
+/// Hardware characteristics that can be modeled without changing the site realm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HardwareProfile {
+    /// Logical processor count exposed through Chromium's native override.
+    pub hardware_concurrency: u32,
+}
+
+impl HardwareProfile {
+    /// Creates a hardware profile with the supplied logical processor count.
+    pub const fn new(hardware_concurrency: u32) -> Self {
+        Self {
+            hardware_concurrency,
+        }
+    }
+}
+
 /// Coherent inputs consumed by the supported CDP patch groups.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserProfile {
@@ -74,6 +90,8 @@ pub struct BrowserProfile {
     pub(crate) device_environment: DeviceEnvironmentProfile,
     /// Locale and timezone values.
     pub(crate) locale: LocaleProfile,
+    /// Hardware characteristics used by opt-in native overrides.
+    pub(crate) hardware: HardwareProfile,
     /// Browser version represented by this profile, when known.
     pub(crate) version: Option<ProfileVersion>,
 }
@@ -102,6 +120,11 @@ impl BrowserProfile {
     /// Locale and timezone defaults.
     pub fn locale(&self) -> &LocaleProfile {
         &self.locale
+    }
+
+    /// Hardware characteristics used by opt-in native overrides.
+    pub const fn hardware(&self) -> HardwareProfile {
+        self.hardware
     }
 
     /// Browser version represented by this profile.
@@ -544,6 +567,12 @@ impl BrowserProfileBuilder {
     /// Sets the IANA timezone identifier.
     pub fn timezone(mut self, timezone: impl Into<String>) -> Self {
         self.profile.locale.timezone = timezone.into();
+        self
+    }
+
+    /// Sets the logical processor count for an opt-in native override.
+    pub fn hardware_concurrency(mut self, value: u32) -> Self {
+        self.profile.hardware.hardware_concurrency = value;
         self
     }
 

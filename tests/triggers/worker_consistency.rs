@@ -33,14 +33,20 @@ async fn loopback_page() -> Result<String> {
 #[ignore = "requires a local Chromium process with working CDP sockets"]
 async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
     let profile = chrome_windows();
-    let target_coordinator = TargetCoordinator::new(&StealthConfig::from_profile(profile.clone()))?;
+    let expected_hardware_concurrency = profile.hardware().hardware_concurrency;
+    let stealth = StealthConfig::from_profile(profile.clone())
+        .hardware_concurrency(expected_hardware_concurrency);
+    let target_coordinator = TargetCoordinator::new(&stealth)?;
     let page_url = loopback_page().await?;
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
         .await
         .context("timed out while launching Chromium")??;
-    let page = timeout(Duration::from_secs(20), browser.new_page(&page_url))
-        .await
-        .context("timed out while creating the patched page")??;
+    let page = timeout(
+        Duration::from_secs(20),
+        browser.new_page_with_stealth(&page_url, &stealth),
+    )
+    .await
+    .context("timed out while creating the patched page")??;
 
     let mut attached_targets = target_coordinator.enable(page.inner()).await?;
 
@@ -161,6 +167,10 @@ async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
     // changes this native worker field.
     assert_eq!(observed["window"]["platform"], "Win32");
     assert_eq!(observed["worker"]["platform"], "Linux x86_64");
+    assert_eq!(
+        observed["window"]["hardwareConcurrency"].as_u64(),
+        Some(u64::from(expected_hardware_concurrency))
+    );
     assert_eq!(observed["mismatches"], serde_json::json!(["platform"]));
     Ok(())
 }

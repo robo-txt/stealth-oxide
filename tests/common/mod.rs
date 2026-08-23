@@ -1,10 +1,13 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
+use chromiumoxide::cdp::browser_protocol::network::{EventResponseReceived, ResourceType};
+use chromiumoxide::cdp::browser_protocol::page::GetFrameTreeParams;
 use chromiumoxide::cdp::browser_protocol::system_info::{GetInfoParams, GetInfoReturns};
 use chromiumoxide::{Browser, BrowserConfig, Page};
 use futures::StreamExt;
 use stealth_oxide::{BrowserProfile, Patch, StealthConfig};
+use tokio::time::{Duration, timeout};
 
 pub struct TestBrowser {
     browser: Browser,
@@ -51,10 +54,56 @@ impl TestBrowser {
     }
 
     pub async fn new_page(&self, url: &str) -> Result<TestPage> {
+        self.new_page_with_stealth(url, &self.stealth).await
+    }
+
+    pub async fn new_page_with_stealth(
+        &self,
+        url: &str,
+        stealth: &StealthConfig,
+    ) -> Result<TestPage> {
         let page = self.browser.new_page("about:blank").await?;
-        self.stealth.apply(&page).await?;
+        stealth.apply(&page).await?;
+        let mut responses = page.event_listener::<EventResponseReceived>().await?;
+        let main_frame_id = page
+            .execute(GetFrameTreeParams {})
+            .await?
+            .result
+            .frame_tree
+            .frame
+            .id;
         page.goto(url).await?;
-        Ok(TestPage(page))
+        let mut document_responses = Vec::new();
+        loop {
+            match timeout(Duration::from_millis(250), responses.next()).await {
+                Ok(Some(event))
+                    if event.r#type == ResourceType::Document
+                        && event.frame_id.as_ref() == Some(&main_frame_id) =>
+                {
+                    document_responses.push(event);
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => break,
+            }
+        }
+        let status = document_responses.last().map(|event| event.response.status);
+        let final_url = document_responses
+            .last()
+            .map(|event| event.response.url.clone());
+        let redirect_statuses = document_responses
+            .iter()
+            .rev()
+            .skip(1)
+            .map(|event| event.response.status)
+            .collect::<Vec<_>>();
+        Ok(TestPage {
+            page,
+            navigation: NavigationInfo {
+                status,
+                final_url,
+                redirect_statuses,
+            },
+        })
     }
 
     pub async fn version(&self) -> Result<String> {
@@ -71,15 +120,29 @@ impl TestBrowser {
     }
 }
 
-pub struct TestPage(Page);
+pub struct TestPage {
+    page: Page,
+    navigation: NavigationInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationInfo {
+    pub status: Option<i64>,
+    pub final_url: Option<String>,
+    pub redirect_statuses: Vec<i64>,
+}
 
 impl TestPage {
     pub fn inner(&self) -> &Page {
-        &self.0
+        &self.page
+    }
+
+    pub fn navigation(&self) -> &NavigationInfo {
+        &self.navigation
     }
 
     pub async fn goto(&self, url: &str) -> chromiumoxide::error::Result<()> {
-        self.0.goto(url).await?;
+        self.page.goto(url).await?;
         Ok(())
     }
 }

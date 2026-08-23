@@ -34,6 +34,8 @@ pub enum Patch {
     MediaFeatures,
     /// Touch capability emulation.
     Touch,
+    /// Native logical-processor-count override.
+    HardwareConcurrency,
 }
 
 /// Controls how one patch obtains its value.
@@ -91,6 +93,7 @@ pub struct StealthConfig {
     screen: PatchMode<ScreenConfig>,
     media_features: PatchMode<MediaFeaturesConfig>,
     touch: PatchMode<TouchConfig>,
+    hardware_concurrency: PatchMode<u32>,
     policy: ConsistencyPolicy,
     defaults: BrowserProfile,
 }
@@ -106,6 +109,7 @@ impl StealthConfig {
             screen: PatchMode::Disabled,
             media_features: PatchMode::Disabled,
             touch: PatchMode::Disabled,
+            hardware_concurrency: PatchMode::Disabled,
             policy: ConsistencyPolicy::Strict,
             defaults,
         }
@@ -125,6 +129,9 @@ impl StealthConfig {
             screen: PatchMode::Override((&profile.screen).into()),
             media_features: PatchMode::Override((&profile.device_environment).into()),
             touch: PatchMode::Override((&profile.device_environment).into()),
+            // Keep the host value by default. This experimental CDP override is
+            // opt-in because a profile should not silently contradict Chromium.
+            hardware_concurrency: PatchMode::Native,
             policy: ConsistencyPolicy::Strict,
             defaults: profile,
         }
@@ -152,6 +159,10 @@ impl StealthConfig {
             Patch::Touch => {
                 self.touch = PatchMode::Override((&self.defaults.device_environment).into());
             }
+            Patch::HardwareConcurrency => {
+                self.hardware_concurrency =
+                    PatchMode::Override(self.defaults.hardware.hardware_concurrency);
+            }
         }
         self
     }
@@ -165,6 +176,7 @@ impl StealthConfig {
             Patch::Screen => self.screen = PatchMode::Disabled,
             Patch::MediaFeatures => self.media_features = PatchMode::Disabled,
             Patch::Touch => self.touch = PatchMode::Disabled,
+            Patch::HardwareConcurrency => self.hardware_concurrency = PatchMode::Disabled,
         }
         self
     }
@@ -178,6 +190,7 @@ impl StealthConfig {
             Patch::Screen => self.screen = PatchMode::Native,
             Patch::MediaFeatures => self.media_features = PatchMode::Native,
             Patch::Touch => self.touch = PatchMode::Native,
+            Patch::HardwareConcurrency => self.hardware_concurrency = PatchMode::Native,
         }
         self
     }
@@ -323,6 +336,19 @@ impl StealthConfig {
         self
     }
 
+    /// Overrides `navigator.hardwareConcurrency` through Chromium's native CDP
+    /// emulation command. No script is injected into the site realm.
+    pub fn hardware_concurrency(mut self, value: u32) -> Self {
+        self.hardware_concurrency = PatchMode::Override(value);
+        self
+    }
+
+    /// Sets the complete hardware-concurrency patch mode.
+    pub fn hardware_concurrency_patch(mut self, mode: PatchMode<u32>) -> Self {
+        self.hardware_concurrency = mode;
+        self
+    }
+
     /// Returns the selected consistency policy.
     pub const fn policy(&self) -> ConsistencyPolicy {
         self.policy
@@ -337,6 +363,7 @@ impl StealthConfig {
             Patch::Screen => state(&self.screen),
             Patch::MediaFeatures => state(&self.media_features),
             Patch::Touch => state(&self.touch),
+            Patch::HardwareConcurrency => state(&self.hardware_concurrency),
         }
     }
 
@@ -346,6 +373,7 @@ impl StealthConfig {
             Patch::Locale,
             Patch::Timezone,
             Patch::Identity,
+            Patch::HardwareConcurrency,
             Patch::Screen,
             Patch::MediaFeatures,
             Patch::Touch,
@@ -394,6 +422,11 @@ impl StealthConfig {
         override_value(&self.touch)
     }
 
+    /// Returns the configured hardware-concurrency override, if enabled.
+    pub fn hardware_concurrency_override(&self) -> Option<u32> {
+        override_value(&self.hardware_concurrency).copied()
+    }
+
     pub(crate) fn identity_mode(&self) -> &PatchMode<NavigatorProfile> {
         &self.identity
     }
@@ -416,6 +449,10 @@ impl StealthConfig {
 
     pub(crate) fn touch_mode(&self) -> &PatchMode<TouchConfig> {
         &self.touch
+    }
+
+    pub(crate) fn hardware_concurrency_mode(&self) -> &PatchMode<u32> {
+        &self.hardware_concurrency
     }
 
     fn identity_value_mut(&mut self) -> &mut NavigatorProfile {
