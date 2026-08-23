@@ -4,7 +4,9 @@ All notable user-visible changes to this project are documented here.
 
 ## [Unreleased]
 
-No unreleased changes.
+- Added native hardware-concurrency, permission, and geolocation controls.
+- Added validation and live-trigger coverage for browser-context permissions
+  and page geolocation overrides.
 
 ## [0.1.2] - 2026-08-22
 

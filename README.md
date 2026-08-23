@@ -150,6 +150,9 @@ Each profile supplies typed values for:
 | Screen | Dimensions, available area, scale factor, orientation |
 | Media features | Color scheme, reduced motion, forced colors, gamut, monochrome |
 | Touch | Touch availability and maximum touch points |
+| Hardware | Logical processor count |
+| Permissions | Origin-scoped browser permission settings |
+| Geolocation | Native position or unavailable-state override |
 
 Patches can be enabled, disabled, or kept native independently:
 
@@ -174,6 +177,60 @@ let config = StealthConfig::none()
     .enable(Patch::Locale)
     .enable(Patch::Timezone);
 ```
+
+### Browser permissions and geolocation
+
+Permission overrides use Chromium's browser-level CDP domain and must be
+applied through the `Browser` connection. Page emulation, including
+geolocation, is applied to a blank page before navigation:
+
+```rust,no_run
+use anyhow::Result;
+use chromiumoxide::{Browser, BrowserConfig};
+use futures::StreamExt;
+use stealth_oxide::{
+    GeolocationConfig, Patch, PermissionOverride, PermissionSetting,
+    PlatformProfile, StealthConfig,
+};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let profile = PlatformProfile::Windows.profile();
+    let browser_config = BrowserConfig::builder()
+        .hide()
+        .build()
+        .map_err(anyhow::Error::msg)?;
+    let (mut browser, mut handler) = Browser::launch(browser_config).await?;
+    tokio::spawn(async move {
+        while let Some(event) = handler.next().await {
+            if let Err(error) = event {
+                eprintln!("chromiumoxide handler error: {error:?}");
+            }
+        }
+    });
+
+    let config = StealthConfig::from_profile(profile)
+        .permission(PermissionOverride::for_origin(
+            "geolocation",
+            PermissionSetting::Granted,
+            "https://example.com",
+        ))
+        .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
+    config.apply_browser(&browser).await?;
+
+    let page = browser.new_page("about:blank").await?;
+    config.clone().use_native(Patch::Permissions).apply(&page).await?;
+    page.goto("https://example.com").await?;
+
+    browser.close().await?;
+    Ok(())
+}
+```
+
+Calling `apply` with a permission override returns `Error::BrowserRequired`;
+use `apply_browser` first, then mark the permission patch native for the
+page-level application. This keeps browser-context and target-context CDP
+commands explicit.
 
 ## Custom profiles and validation
 
