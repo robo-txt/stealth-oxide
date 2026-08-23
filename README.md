@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/robo-txt/stealth-oxide/main/docs/images/stealth-oxide-logo.png" alt="stealth-oxide logo" width="180">
+</p>
+
 # stealth-oxide
 
 Typed Chromium profiles and Chrome DevTools Protocol configuration for Rust.
@@ -30,6 +34,33 @@ and reproducible QA environments.
 
 The application remains in control of Chromium launch, browser lifetime,
 navigation, proxies, authentication, storage, and shutdown.
+
+## Diagnostic snapshots
+
+These representative browser diagnostics show the kind of environment output
+the package helps applications collect and compare:
+
+<table>
+  <tr>
+    <th>CreepJS</th>
+    <th>Sannysoft</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="https://github.com/robo-txt/stealth-oxide/blob/main/docs/images/creepjs-full-page.png">
+        <img src="https://raw.githubusercontent.com/robo-txt/stealth-oxide/main/docs/images/creepjs-full-page.png" alt="CreepJS diagnostic snapshot" width="420">
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/robo-txt/stealth-oxide/blob/main/docs/images/sannysoft-full-page.png">
+        <img src="https://raw.githubusercontent.com/robo-txt/stealth-oxide/main/docs/images/sannysoft-full-page.png" alt="Sannysoft diagnostic snapshot" width="420">
+      </a>
+    </td>
+  </tr>
+</table>
+
+These are environment snapshots for authorized testing, not classifications or
+guarantees about a third-party service.
 
 ## Installation
 
