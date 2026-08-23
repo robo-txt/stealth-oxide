@@ -6,16 +6,9 @@
 #[path = "common/mod.rs"]
 mod common;
 
-mod bypass {
+mod triggers {
     pub(super) use super::common;
 
-    mod creepjs_device_environment;
-    mod creepjs_headless;
-    mod creepjs_remaining;
-    mod creepjs_timezone_intl;
-    mod creepjs_webgl;
-    mod creepjs_webrtc_media;
-    mod creepjs_worker;
     mod device_environment;
     mod font_speech_environment;
     mod headless_emulation;

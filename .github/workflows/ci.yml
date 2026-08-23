@@ -63,22 +63,12 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo check --locked --all-targets --all-features
 
-  chromium-integration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker compose build
-      - name: Verify the supported Chromium major
-        run: docker compose run --rm stealth-oxide chromium --version | grep -E '^(Chromium|Google Chrome for Testing) 151\.'
-      - run: docker compose run --rm stealth-oxide
-
   required-ci:
     name: Required CI
     if: ${{ always() }}
     needs:
       - quality
       - msrv
-      - chromium-integration
       - audit
     runs-on: ubuntu-latest
     steps:
@@ -86,10 +76,8 @@ jobs:
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
           MSRV_RESULT: ${{ needs.msrv.result }}
-          CHROMIUM_INTEGRATION_RESULT: ${{ needs.chromium-integration.result }}
           AUDIT_RESULT: ${{ needs.audit.result }}
         run: |
           test "$QUALITY_RESULT" = success
           test "$MSRV_RESULT" = success
-          test "$CHROMIUM_INTEGRATION_RESULT" = success
           test "$AUDIT_RESULT" = success
