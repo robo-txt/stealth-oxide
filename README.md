@@ -14,6 +14,10 @@ configuration to an existing page before navigation.
 Use it for authorized browser automation, compatibility testing, diagnostics,
 and reproducible QA environments.
 
+> **Testing only:** Use `stealth-oxide` only for authorized browser automation,
+> research, and quality assurance. Do not use it to evade access controls or
+> security systems, or against sites and systems without permission.
+
 ## What you can do
 
 - Start from coherent Linux, macOS, or Windows Chrome profiles.
