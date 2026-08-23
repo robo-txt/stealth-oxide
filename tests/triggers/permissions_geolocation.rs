@@ -66,6 +66,9 @@ async fn native_permission_and_geolocation_controls_match() -> Result<()> {
     )
     .await
     .context("timed out while creating the configured page")??;
+    // Some cross-origin navigation paths reset target-scoped geolocation;
+    // reapply after the final document is active before probing it.
+    page_config.apply(page.inner()).await?;
 
     let observed: Value = timeout(
         Duration::from_secs(20),
@@ -81,7 +84,7 @@ async fn native_permission_and_geolocation_controls_match() -> Result<()> {
                             accuracy: value.coords.accuracy
                         }),
                         error => resolve({ ok: false, code: error.code, message: error.message }),
-                        { timeout: 3000 }
+                        { maximumAge: 0, timeout: 10000 }
                     );
                 });
                 return { permission: permission.state, position };

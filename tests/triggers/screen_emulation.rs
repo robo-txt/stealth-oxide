@@ -123,14 +123,13 @@ async fn screen_patch_keeps_cdp_controlled_surfaces_consistent() -> Result<()> {
             Some(u64::from(expected_screen.available_height))
         );
     } else {
-        // CDP's device-metrics override has no separate available-area input.
         assert_eq!(
-            observed["top"]["availWidth"],
-            observed["top"]["screenWidth"]
+            observed["top"]["availWidth"].as_u64(),
+            Some(u64::from(expected_screen.available_width))
         );
         assert_eq!(
-            observed["top"]["availHeight"],
-            observed["top"]["screenHeight"]
+            observed["top"]["availHeight"].as_u64(),
+            Some(u64::from(expected_screen.available_height))
         );
     }
     assert_eq!(observed["top"]["pixelDepth"], observed["top"]["colorDepth"]);

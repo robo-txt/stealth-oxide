@@ -1,8 +1,6 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use chromiumoxide::cdp::browser_protocol::network::{EventResponseReceived, ResourceType};
-use chromiumoxide::cdp::browser_protocol::page::GetFrameTreeParams;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use serde_json::{Value, json};
@@ -11,13 +9,15 @@ use stealth_oxide::{
     GeolocationConfig, Patch, PermissionOverride, PermissionSetting, StealthConfig,
     TargetCoordinator,
 };
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 use url::Url;
 
-const DEFAULT_SITES: [&str; 3] = [
+const DEFAULT_SITES: [&str; 5] = [
     "https://example.com/",
     "https://abrahamjuliot.github.io/creepjs/",
     "https://stackoverflow.com/",
+    "https://www.ticketmaster.com/",
+    "https://www.reddit.com/",
 ];
 
 const PROBE: &str = r#"
@@ -59,7 +59,7 @@ const PROBE: &str = r#"
                 accuracy: position.coords.accuracy,
             }),
             error => resolve({ ok: false, code: error.code, message: error.message }),
-            { timeout: 2000 }
+            { maximumAge: 0, timeout: 10000 }
         );
     });
 
@@ -106,6 +106,14 @@ const PROBE: &str = r#"
         permissions: {
             geolocation: await permissionState('geolocation'),
             notifications: await permissionState('notifications'),
+        },
+        geolocationPolicy: document.permissionsPolicy
+            ? document.permissionsPolicy.allowsFeature('geolocation')
+            : null,
+        geolocationApi: {
+            type: Object.prototype.toString.call(navigator.geolocation),
+            getCurrentPosition: String(navigator.geolocation?.getCurrentPosition ?? '')
+                .slice(0, 200),
         },
         geolocation,
         webgl: webgl(),
@@ -231,11 +239,18 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
         .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
     let page_config = config.clone().use_native(Patch::Permissions);
 
-    let browser_config = BrowserConfig::builder()
+    let use_mesa = env_enabled("STEALTH_OXIDE_USE_MESA");
+    let mut browser_builder = BrowserConfig::builder()
         .hide()
-        .arg(("user-agent", profile.navigator().user_agent.as_str()))
-        .build()
-        .map_err(anyhow::Error::msg)?;
+        .arg(("user-agent", profile.navigator().user_agent.as_str()));
+    if use_mesa {
+        browser_builder = browser_builder
+            .arg(("use-gl", "angle"))
+            .arg(("use-angle", "gl"))
+            .arg("ignore-gpu-blocklist")
+            .arg("enable-gpu-rasterization");
+    }
+    let browser_config = browser_builder.build().map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(browser_config).await?;
     tokio::spawn(async move {
         while let Some(event) = handler.next().await {
@@ -245,9 +260,7 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
         }
     });
 
-    config.apply_browser(&browser).await?;
-    let page = browser.new_page("about:blank").await?;
-    page_config.apply(&page).await?;
+    let page = config.new_page(&browser, site).await?;
 
     let coordinator = TargetCoordinator::new(&page_config)?;
     let mut attached_targets = coordinator.enable(&page).await?;
@@ -261,44 +274,14 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
         }
     });
 
-    let mut responses = page
-        .event_listener::<EventResponseReceived>()
-        .await
-        .map_err(|source| anyhow::anyhow!(source))?;
-    let main_frame_id = page
-        .execute(GetFrameTreeParams {})
-        .await?
-        .result
-        .frame_tree
-        .frame
-        .id;
-    page.goto(site).await?;
     sleep(wait).await;
 
-    let mut document_responses = Vec::new();
-    loop {
-        match timeout(Duration::from_millis(250), responses.next()).await {
-            Ok(Some(event))
-                if event.r#type == ResourceType::Document
-                    && event.frame_id.as_ref() == Some(&main_frame_id) =>
-            {
-                document_responses.push(event);
-            }
-            Ok(Some(_)) => {}
-            Ok(None) | Err(_) => break,
-        }
-    }
-
     let observed: Value = page.evaluate(PROBE).await?.into_value()?;
+    let final_url = page.url().await?.map(|url| sanitize_url(&url));
     let navigation = json!({
-        "status": document_responses.last().map(|event| event.response.status),
-        "finalUrl": document_responses.last().map(|event| event.response.url.clone()),
-        "redirectStatuses": document_responses
-            .iter()
-            .rev()
-            .skip(1)
-            .map(|event| event.response.status)
-            .collect::<Vec<_>>(),
+        "status": null,
+        "finalUrl": final_url,
+        "redirectStatuses": [],
         "title": page.get_title().await?.unwrap_or_default(),
     });
 
@@ -308,13 +291,23 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
     target_task.abort();
 
     Ok(json!({
-        "site": site,
+        "site": sanitize_url(site),
         "origin": origin,
         "profile": "chrome-windows",
+        "gpuMode": if use_mesa { "mesa" } else { "default" },
         "navigation": navigation,
         "observed": observed,
         "contextMismatches": mismatches,
     }))
+}
+
+fn sanitize_url(value: &str) -> String {
+    let Ok(mut url) = Url::parse(value) else {
+        return "[invalid-url]".to_string();
+    };
+    url.set_query(None);
+    url.set_fragment(None);
+    url.to_string()
 }
 
 fn compare_contexts(observed: &Value) -> Vec<String> {
@@ -338,4 +331,8 @@ fn compare_contexts(observed: &Value) -> Vec<String> {
     .filter(|key| window.get(*key) != worker.get(*key))
     .map(|key| format!("window.worker.{key}"))
     .collect()
+}
+
+fn env_enabled(name: &str) -> bool {
+    matches!(std::env::var(name).as_deref(), Ok("1") | Ok("true"))
 }

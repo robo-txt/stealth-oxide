@@ -65,6 +65,27 @@ pub use topology::{Coverage, ResourceScope, classify_resource, sanitize_initiato
 pub use validation::validate_profile;
 
 impl StealthConfig {
+    /// Creates a destination page and applies the profile before its document
+    /// scripts run.
+    ///
+    /// The initialization target is kept internal: callers receive only the
+    /// configured destination page. Browser-context permissions are applied
+    /// first, page-scoped emulation is applied before navigation, and
+    /// target-scoped state is reapplied after navigation for Chromium paths
+    /// that reset it during a cross-origin load.
+    ///
+    /// This helper uses the browser's default context, matching
+    /// [`Browser::new_page`]. Use [`Self::apply_browser`] explicitly when a
+    /// caller needs to manage a separate Chromium browser context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if validation, page creation, navigation, or profile
+    /// application fails.
+    pub async fn new_page(&self, browser: &Browser, url: &str) -> Result<Page> {
+        targets::new_page_with_profile(browser, self, url).await
+    }
+
     /// Validates and applies this configuration to an existing Chromiumoxide page.
     ///
     /// Call this while the page is still `about:blank`, before site scripts run.

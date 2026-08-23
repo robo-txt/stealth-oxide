@@ -162,15 +162,12 @@ async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
         assert_eq!(observed["worker"][property], observed["window"][property]);
     }
 
-    // Chrome 151 accepts the worker-target UA and Client Hint override but
-    // preserves the host WorkerNavigator.platform. No CDP emulation command
-    // changes this native worker field.
     assert_eq!(observed["window"]["platform"], "Win32");
-    assert_eq!(observed["worker"]["platform"], "Linux x86_64");
+    assert_eq!(observed["worker"]["platform"], "Win32");
     assert_eq!(
         observed["window"]["hardwareConcurrency"].as_u64(),
         Some(u64::from(expected_hardware_concurrency))
     );
-    assert_eq!(observed["mismatches"], serde_json::json!(["platform"]));
+    assert_eq!(observed["mismatches"], serde_json::json!([]));
     Ok(())
 }

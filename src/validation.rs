@@ -135,8 +135,15 @@ fn validate_geolocation(geolocation: &GeolocationConfig, issues: &mut Vec<Valida
 }
 
 fn validate_screen(screen: &ScreenConfig, issues: &mut Vec<ValidationIssue>) {
-    if screen.width == 0 || screen.height == 0 {
+    if screen.width == 0
+        || screen.height == 0
+        || screen.available_width == 0
+        || screen.available_height == 0
+    {
         issues.push(ValidationIssue::InvalidScreenDimensions);
+    }
+    if screen.available_width > screen.width || screen.available_height > screen.height {
+        issues.push(ValidationIssue::WorkAreaExceedsScreen);
     }
     if !screen.device_scale_factor.is_finite() || screen.device_scale_factor <= 0.0 {
         issues.push(ValidationIssue::InvalidScaleFactor);

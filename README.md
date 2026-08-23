@@ -180,16 +180,17 @@ let config = StealthConfig::none()
 
 ### Browser permissions and geolocation
 
-Permission overrides use Chromium's browser-level CDP domain and must be
-applied through the `Browser` connection. Page emulation, including
-geolocation, is applied to a blank page before navigation:
+Permission overrides use Chromium's browser-level CDP domain. The
+`StealthConfig::new_page` helper applies permissions, configures the page
+before any destination document script runs, navigates, and reapplies
+target-scoped state after navigation when Chromium resets it:
 
 ```rust,no_run
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use stealth_oxide::{
-    GeolocationConfig, Patch, PermissionOverride, PermissionSetting,
+    GeolocationConfig, PermissionOverride, PermissionSetting,
     PlatformProfile, StealthConfig,
 };
 
@@ -216,21 +217,18 @@ async fn main() -> Result<()> {
             "https://example.com",
         ))
         .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
-    config.apply_browser(&browser).await?;
-
-    let page = browser.new_page("about:blank").await?;
-    config.clone().use_native(Patch::Permissions).apply(&page).await?;
-    page.goto("https://example.com").await?;
+    let page = config.new_page(&browser, "https://example.com").await?;
 
     browser.close().await?;
     Ok(())
 }
 ```
 
-Calling `apply` with a permission override returns `Error::BrowserRequired`;
-use `apply_browser` first, then mark the permission patch native for the
-page-level application. This keeps browser-context and target-context CDP
-commands explicit.
+Calling `apply` directly with a permission override still returns
+`Error::BrowserRequired`; use `new_page` or call `apply_browser` explicitly
+when managing the lifecycle yourself. The helper keeps its initialization
+target internal, so callers do not need to create or expose an intermediate
+blank page.
 
 ## Custom profiles and validation
 
@@ -301,8 +299,13 @@ fingerprint identifier or network candidates:
 STEALTH_OXIDE_DIAGNOSTIC_WAIT=6 cargo run --example site_diagnostic -- \
   https://example.com/ \
   https://abrahamjuliot.github.io/creepjs/ \
-  https://stackoverflow.com/
+  https://stackoverflow.com/ \
+  https://www.ticketmaster.com/ \
+  https://www.reddit.com/
 ```
+
+Set `STEALTH_OXIDE_USE_MESA=1` for the optional ANGLE/OpenGL software-GPU
+comparison. The result records the selected GPU mode and the WebGL renderer.
 
 ## Network observation
 

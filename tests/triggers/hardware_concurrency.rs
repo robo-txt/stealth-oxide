@@ -88,3 +88,34 @@ async fn native_hardware_concurrency_override_reaches_page_and_iframe() -> Resul
     }
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "requires a local Chromium process with working CDP sockets"]
+async fn profile_helper_applies_hardware_before_the_first_document_script() -> Result<()> {
+    let profile = chrome_windows();
+    let expected = profile.hardware().hardware_concurrency;
+    let browser = timeout(
+        Duration::from_secs(20),
+        StealthBrowser::launch(profile.clone()),
+    )
+    .await
+    .context("timed out while launching Chromium")??;
+    let config = StealthConfig::from_profile(profile).hardware_concurrency(expected);
+    let url = format!(
+        "data:text/html,<script>document.title=String(navigator.hardwareConcurrency)</script>"
+    );
+    let page = timeout(
+        Duration::from_secs(20),
+        browser.new_page_with_profile_helper(&url, &config),
+    )
+    .await
+    .context("timed out while creating the profile-helper page")??;
+    let observed = page.get_title().await?.unwrap_or_default();
+
+    timeout(Duration::from_secs(20), browser.close())
+        .await
+        .context("timed out while closing Chromium")??;
+
+    assert_eq!(observed, expected.to_string());
+    Ok(())
+}

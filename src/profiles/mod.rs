@@ -361,6 +361,10 @@ pub struct ScreenConfig {
     pub width: u32,
     /// Screen height in CSS pixels.
     pub height: u32,
+    /// Available screen width in CSS pixels.
+    pub available_width: u32,
+    /// Available screen height in CSS pixels.
+    pub available_height: u32,
     /// Ratio between device and CSS pixels.
     pub device_scale_factor: f64,
 }
@@ -371,6 +375,8 @@ impl ScreenConfig {
         Self {
             width,
             height,
+            available_width: width,
+            available_height: height,
             device_scale_factor,
         }
     }
@@ -379,6 +385,13 @@ impl ScreenConfig {
     pub const fn dimensions(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// Replaces the available work-area dimensions.
+    pub const fn available_dimensions(mut self, width: u32, height: u32) -> Self {
+        self.available_width = width;
+        self.available_height = height;
         self
     }
 
@@ -394,6 +407,8 @@ impl From<&ScreenProfile> for ScreenConfig {
         Self {
             width: profile.width,
             height: profile.height,
+            available_width: profile.available_width,
+            available_height: profile.available_height,
             device_scale_factor: profile.device_scale_factor,
         }
     }

@@ -216,6 +216,8 @@ fn customizes_a_preset_without_breaking_coupled_locale_fields() -> stealth_oxide
     assert_eq!(profile.locale().locale, "en-CA");
     assert_eq!(profile.navigator().languages[0], "en-CA");
     assert_eq!(profile.locale().timezone, "America/Toronto");
+    assert_eq!(profile.screen().available_width, 2560);
+    assert_eq!(profile.screen().available_height, 1400);
     assert_eq!(profile.screen().device_scale_factor, 1.25);
     assert_eq!(profile.hardware().hardware_concurrency, 8);
     Ok(())

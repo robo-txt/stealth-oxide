@@ -106,6 +106,14 @@ impl TestBrowser {
         })
     }
 
+    pub async fn new_page_with_profile_helper(
+        &self,
+        url: &str,
+        stealth: &StealthConfig,
+    ) -> Result<Page> {
+        Ok(stealth.new_page(&self.browser, url).await?)
+    }
+
     pub async fn apply_browser_stealth(&self, stealth: &StealthConfig) -> Result<()> {
         stealth.apply_browser(&self.browser).await?;
         Ok(())
