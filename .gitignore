@@ -16,3 +16,10 @@
 
 # Privately supplied Windows fonts. Keep the directory instructions tracked,
 # but never commit licensed font binaries.
+
+# Local browser-test outputs and downloaded diagnostics.
+/test-artifacts/
+/test-results/
+/test-screenshots/
+/test-logs/
+/.chromium/
