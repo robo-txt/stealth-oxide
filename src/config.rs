@@ -1,3 +1,4 @@
+use crate::capabilities::{CapabilityExpectation, NativeCapabilityExpectations};
 use crate::error::ValidationIssue;
 use crate::profiles::chrome_linux::chrome_linux;
 use crate::profiles::chrome_macos::chrome_macos;
@@ -85,6 +86,26 @@ impl PlatformProfile {
             Self::Linux => chrome_linux(),
             Self::MacOS => chrome_macos(),
             Self::Windows => chrome_windows(),
+        }
+    }
+
+    /// Returns native capability expectations for a real desktop Chrome
+    /// runtime on this platform.
+    ///
+    /// These expectations describe validation behavior only. They do not
+    /// inject or remove browser APIs, and a profile identity cannot turn a
+    /// Linux runtime into a Windows or macOS runtime.
+    pub const fn native_capability_expectations(self) -> NativeCapabilityExpectations {
+        let web_share = match self {
+            Self::Linux => CapabilityExpectation::NotExpected,
+            Self::MacOS | Self::Windows => CapabilityExpectation::Expected,
+        };
+
+        NativeCapabilityExpectations {
+            web_share,
+            contacts_manager: CapabilityExpectation::NotExpected,
+            content_index: CapabilityExpectation::NotExpected,
+            network_information_downlink_max: CapabilityExpectation::NotExpected,
         }
     }
 }

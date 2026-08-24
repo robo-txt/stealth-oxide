@@ -154,6 +154,18 @@ Each profile supplies typed values for:
 | Permissions | Origin-scoped browser permission settings |
 | Geolocation | Native position or unavailable-state override |
 
+Platform profiles also expose validation-only expectations for native desktop
+capabilities such as Web Share, Contacts Manager, Content Index, and
+`NetworkInformation.prototype.downlinkMax`. These expectations do not inject
+or remove APIs: selecting a Windows or macOS identity on a Linux host cannot
+turn the underlying Chromium runtime into that operating system.
+
+Screen work-area values are kept on Chromium's native CDP surface. The
+diagnostic reports `Emulation.getScreenInfos` separately from legacy
+`window.screen.availWidth`/`availHeight`; the latter may remain host-provided
+because changing it with a JavaScript own-property shim creates a detectable
+prototype lie in CreepJS.
+
 Patches can be enabled, disabled, or kept native independently:
 
 ```rust
@@ -305,9 +317,16 @@ STEALTH_OXIDE_DIAGNOSTIC_WAIT=6 cargo run --example site_diagnostic -- \
 ```
 
 Select the profile under test with `STEALTH_OXIDE_DIAGNOSTIC_PROFILE=linux`,
-`windows` (the default), or `macos`. The diagnostic reads the actual CDP
-browser product and aligns only the profile's Chrome UA/UA-CH version tokens to
-that runtime; the selected OS identity and native host surfaces remain intact.
+`windows` (the default), or `macos`. The diagnostic reads the installed
+Chromium executable version before launch and aligns the profile's Chrome
+UA/UA-CH version tokens to that runtime, including launch-time worker identity.
+For meaningful native-host results, select the profile matching the host OS;
+cross-platform profiles intentionally remain observable as identity overrides.
+
+The diagnostic also reports native capability expectations/observations and
+`Emulation.getScreenInfos` work-area data. It does not report a zero overall
+CreepJS score: CreepJS's separate `like headless` percentage includes native
+GPU, taskbar, and other host-runtime signals.
 
 Set `STEALTH_OXIDE_USE_MESA=1` for the optional ANGLE/OpenGL software-GPU
 comparison. The result records the selected GPU mode and the WebGL renderer.

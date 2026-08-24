@@ -1,8 +1,11 @@
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::emulation::{
-    ScreenOrientation, ScreenOrientationType, SetDeviceMetricsOverrideParams,
+    GetScreenInfosParams, ScreenId, ScreenOrientation, ScreenOrientationType,
+    SetDeviceMetricsOverrideParams, WorkAreaInsets,
 };
-use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
+use chromiumoxide::types::{Command, Method, MethodId, MethodType};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::error::{Error, Result};
 use crate::profiles::ScreenConfig;
@@ -12,34 +15,158 @@ pub async fn apply(page: &Page, profile: &ScreenConfig) -> Result<()> {
         .await
         .map_err(|source| Error::cdp("screen metrics", source))?;
 
-    let script = available_dimensions_script(profile);
-    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(&script))
+    let screen_infos = page
+        .execute(GetScreenInfosParams::default())
         .await
-        .map_err(|source| Error::cdp("screen available dimensions initialization", source))?;
-    page.evaluate(script)
-        .await
-        .map_err(|source| Error::cdp("screen available dimensions", source))?;
+        .map_err(|source| Error::cdp("screen information", source))?;
+    let primary_screen = screen_infos
+        .screen_infos
+        .iter()
+        .find(|screen| screen.is_primary)
+        .map(|screen| screen.id.clone())
+        .ok_or_else(|| Error::invalid_parameters("screen information", "primary screen missing"))?;
+
+    let work_area = WorkAreaInsets::builder()
+        .top(0)
+        .left(0)
+        .right((profile.width - profile.available_width) as i64)
+        .bottom((profile.height - profile.available_height) as i64)
+        .build();
+    page.execute(
+        UpdateScreenParams::builder()
+            .screen_id(primary_screen)
+            .left(0)
+            .top(0)
+            .width(profile.width as i64)
+            .height(profile.height as i64)
+            .work_area_insets(work_area)
+            .device_pixel_ratio(profile.device_scale_factor)
+            .color_depth(24)
+            .is_internal(true)
+            .build(),
+    )
+    .await
+    .map_err(|source| Error::cdp("screen work area", source))?;
 
     Ok(())
 }
 
-fn available_dimensions_script(profile: &ScreenConfig) -> String {
-    format!(
-        r#"(() => {{
-            const screen = window.screen;
-            Object.defineProperty(screen, 'availWidth', {{
-                configurable: true,
-                enumerable: true,
-                value: {},
-            }});
-            Object.defineProperty(screen, 'availHeight', {{
-                configurable: true,
-                enumerable: true,
-                value: {},
-            }});
-        }})()"#,
-        profile.available_width, profile.available_height
-    )
+#[derive(Debug, Serialize)]
+struct UpdateScreenParams {
+    #[serde(rename = "screenId")]
+    screen_id: ScreenId,
+    left: i64,
+    top: i64,
+    width: i64,
+    height: i64,
+    #[serde(rename = "workAreaInsets")]
+    work_area_insets: WorkAreaInsets,
+    #[serde(rename = "devicePixelRatio")]
+    device_pixel_ratio: f64,
+    #[serde(rename = "colorDepth")]
+    color_depth: i64,
+    #[serde(rename = "isInternal")]
+    is_internal: bool,
+}
+
+#[derive(Default)]
+struct UpdateScreenParamsBuilder {
+    screen_id: Option<ScreenId>,
+    left: Option<i64>,
+    top: Option<i64>,
+    width: Option<i64>,
+    height: Option<i64>,
+    work_area_insets: Option<WorkAreaInsets>,
+    device_pixel_ratio: Option<f64>,
+    color_depth: Option<i64>,
+    is_internal: Option<bool>,
+}
+
+impl UpdateScreenParams {
+    const IDENTIFIER: &'static str = "Emulation.updateScreen";
+
+    fn builder() -> UpdateScreenParamsBuilder {
+        UpdateScreenParamsBuilder::default()
+    }
+}
+
+impl UpdateScreenParamsBuilder {
+    fn screen_id(mut self, screen_id: impl Into<ScreenId>) -> Self {
+        self.screen_id = Some(screen_id.into());
+        self
+    }
+
+    fn left(mut self, left: impl Into<i64>) -> Self {
+        self.left = Some(left.into());
+        self
+    }
+
+    fn top(mut self, top: impl Into<i64>) -> Self {
+        self.top = Some(top.into());
+        self
+    }
+
+    fn width(mut self, width: impl Into<i64>) -> Self {
+        self.width = Some(width.into());
+        self
+    }
+
+    fn height(mut self, height: impl Into<i64>) -> Self {
+        self.height = Some(height.into());
+        self
+    }
+
+    fn work_area_insets(mut self, work_area_insets: WorkAreaInsets) -> Self {
+        self.work_area_insets = Some(work_area_insets);
+        self
+    }
+
+    fn device_pixel_ratio(mut self, device_pixel_ratio: impl Into<f64>) -> Self {
+        self.device_pixel_ratio = Some(device_pixel_ratio.into());
+        self
+    }
+
+    fn color_depth(mut self, color_depth: impl Into<i64>) -> Self {
+        self.color_depth = Some(color_depth.into());
+        self
+    }
+
+    fn is_internal(mut self, is_internal: impl Into<bool>) -> Self {
+        self.is_internal = Some(is_internal.into());
+        self
+    }
+
+    fn build(self) -> UpdateScreenParams {
+        UpdateScreenParams {
+            screen_id: self.screen_id.expect("screen id is required"),
+            left: self.left.expect("screen left is required"),
+            top: self.top.expect("screen top is required"),
+            width: self.width.expect("screen width is required"),
+            height: self.height.expect("screen height is required"),
+            work_area_insets: self.work_area_insets.expect("work area is required"),
+            device_pixel_ratio: self
+                .device_pixel_ratio
+                .expect("device pixel ratio is required"),
+            color_depth: self.color_depth.expect("color depth is required"),
+            is_internal: self.is_internal.expect("internal screen state is required"),
+        }
+    }
+}
+
+impl Method for UpdateScreenParams {
+    fn identifier(&self) -> MethodId {
+        Self::IDENTIFIER.into()
+    }
+}
+
+impl MethodType for UpdateScreenParams {
+    fn method_id() -> MethodId {
+        Self::IDENTIFIER.into()
+    }
+}
+
+impl Command for UpdateScreenParams {
+    type Response = Value;
 }
 
 fn params(profile: &ScreenConfig) -> Result<SetDeviceMetricsOverrideParams> {
@@ -113,5 +240,20 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn builds_native_work_area_insets() {
+        let work_area = WorkAreaInsets::builder()
+            .top(0)
+            .left(0)
+            .right(80)
+            .bottom(40)
+            .build();
+
+        assert_eq!(work_area.top, Some(0));
+        assert_eq!(work_area.left, Some(0));
+        assert_eq!(work_area.right, Some(80));
+        assert_eq!(work_area.bottom, Some(40));
     }
 }

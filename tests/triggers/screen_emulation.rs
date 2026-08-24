@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chromiumoxide::cdp::browser_protocol::emulation::GetScreenInfosParams;
 use serde_json::Value;
 use tokio::time::timeout;
 
@@ -13,6 +14,10 @@ use stealth_oxide::profiles::chrome_windows::chrome_windows;
 async fn screen_patch_keeps_cdp_controlled_surfaces_consistent() -> Result<()> {
     let uses_native_screen = matches!(
         std::env::var("STEALTH_OXIDE_USE_NATIVE_SCREEN").as_deref(),
+        Ok("1") | Ok("true")
+    );
+    let uses_headful = matches!(
+        std::env::var("STEALTH_OXIDE_HEADFUL").as_deref(),
         Ok("1") | Ok("true")
     );
     let profile = chrome_windows();
@@ -72,36 +77,68 @@ async fn screen_patch_keeps_cdp_controlled_surfaces_consistent() -> Result<()> {
     .context("timed out while reading browser-visible screen values")??
         .into_value()?;
 
+    let native_screen_info = page
+        .inner()
+        .execute(GetScreenInfosParams::default())
+        .await?;
+    let native_screen = native_screen_info
+        .screen_infos
+        .iter()
+        .into_iter()
+        .find(|screen| screen.is_primary)
+        .context("primary native screen was not reported")?;
+
     timeout(Duration::from_secs(20), browser.close())
         .await
         .context("timed out while closing Chromium")??;
 
-    assert_eq!(
-        observed["top"]["screenWidth"].as_u64(),
-        Some(u64::from(expected_screen.width))
-    );
-    assert_eq!(
-        observed["top"]["screenHeight"].as_u64(),
-        Some(u64::from(expected_screen.height))
-    );
-    assert_eq!(
-        observed["top"]["devicePixelRatio"].as_f64(),
-        Some(expected_screen.device_scale_factor)
-    );
-    assert_eq!(observed["top"]["widthMediaMatches"], true);
-    assert_eq!(observed["top"]["heightMediaMatches"], true);
-    assert_eq!(observed["top"]["resolutionMediaMatches"], true);
-    if uses_native_screen {
+    if uses_headful || uses_native_screen {
+        // Native-screen mode preserves the host's physical display. CDP
+        // cannot synthesize an OS window frame or replace that native screen.
+        assert!(observed["top"]["screenWidth"].as_u64().unwrap_or(0) > 0);
+        assert!(observed["top"]["screenHeight"].as_u64().unwrap_or(0) > 0);
+        assert!(
+            observed["top"]["availWidth"].as_u64().unwrap_or(0)
+                <= observed["top"]["screenWidth"].as_u64().unwrap_or(0)
+        );
+        assert!(
+            observed["top"]["availHeight"].as_u64().unwrap_or(0)
+                <= observed["top"]["screenHeight"].as_u64().unwrap_or(0)
+        );
+    } else {
+        assert_eq!(
+            observed["top"]["screenWidth"].as_u64(),
+            Some(u64::from(expected_screen.width))
+        );
+        assert_eq!(
+            observed["top"]["screenHeight"].as_u64(),
+            Some(u64::from(expected_screen.height))
+        );
+    }
+    if uses_headful || uses_native_screen {
+        assert!(observed["top"]["devicePixelRatio"].as_f64().unwrap_or(0.0) > 0.0);
+    } else {
+        assert_eq!(
+            observed["top"]["devicePixelRatio"].as_f64(),
+            Some(expected_screen.device_scale_factor)
+        );
+        assert_eq!(observed["top"]["widthMediaMatches"], true);
+        assert_eq!(observed["top"]["heightMediaMatches"], true);
+        assert_eq!(observed["top"]["resolutionMediaMatches"], true);
+    }
+    if uses_headful || uses_native_screen {
         assert!(observed["top"]["innerWidth"].as_u64().unwrap_or(0) > 0);
         assert!(observed["top"]["innerHeight"].as_u64().unwrap_or(0) > 0);
-        assert_eq!(
-            observed["top"]["visualViewportWidth"],
-            observed["top"]["innerWidth"]
-        );
-        assert_eq!(
-            observed["top"]["visualViewportHeight"],
-            observed["top"]["innerHeight"]
-        );
+        let inner_width = observed["top"]["innerWidth"].as_f64().unwrap_or(0.0);
+        let inner_height = observed["top"]["innerHeight"].as_f64().unwrap_or(0.0);
+        let viewport_width = observed["top"]["visualViewportWidth"]
+            .as_f64()
+            .unwrap_or(0.0);
+        let viewport_height = observed["top"]["visualViewportHeight"]
+            .as_f64()
+            .unwrap_or(0.0);
+        assert!((viewport_width - inner_width).abs() <= 1.0);
+        assert!((viewport_height - inner_height).abs() <= 1.0);
     } else {
         assert_eq!(observed["top"]["innerWidth"].as_u64(), Some(1920));
         assert_eq!(observed["top"]["innerHeight"].as_u64(), Some(1080));
@@ -113,37 +150,46 @@ async fn screen_patch_keeps_cdp_controlled_surfaces_consistent() -> Result<()> {
     assert_eq!(observed["top"]["landscapeMediaMatches"], true);
     assert_eq!(observed["top"]["portraitMediaMatches"], false);
 
-    if uses_native_screen {
+    assert!(observed["top"]["availWidth"].as_u64().unwrap_or(0) > 0);
+    assert!(observed["top"]["availHeight"].as_u64().unwrap_or(0) > 0);
+    assert!(
+        observed["top"]["availWidth"].as_u64().unwrap_or(0)
+            <= observed["top"]["screenWidth"].as_u64().unwrap_or(0)
+    );
+    assert!(
+        observed["top"]["availHeight"].as_u64().unwrap_or(0)
+            <= observed["top"]["screenHeight"].as_u64().unwrap_or(0)
+    );
+    if !uses_headful && !uses_native_screen {
+        assert_eq!(native_screen.avail_width, i64::from(expected_screen.width));
         assert_eq!(
-            observed["top"]["availWidth"].as_u64(),
-            Some(u64::from(expected_screen.available_width))
-        );
-        assert_eq!(
-            observed["top"]["availHeight"].as_u64(),
-            Some(u64::from(expected_screen.available_height))
-        );
-    } else {
-        assert_eq!(
-            observed["top"]["availWidth"].as_u64(),
-            Some(u64::from(expected_screen.available_width))
-        );
-        assert_eq!(
-            observed["top"]["availHeight"].as_u64(),
-            Some(u64::from(expected_screen.available_height))
+            native_screen.avail_height,
+            i64::from(expected_screen.available_height)
         );
     }
     assert_eq!(observed["top"]["pixelDepth"], observed["top"]["colorDepth"]);
     assert!(observed["top"]["outerWidth"].as_u64().unwrap_or(0) > 0);
     assert!(observed["top"]["outerHeight"].as_u64().unwrap_or(0) > 0);
 
-    assert_eq!(
-        observed["iframe"]["screenWidth"].as_u64(),
-        Some(u64::from(expected_screen.width))
-    );
-    assert_eq!(
-        observed["iframe"]["screenHeight"].as_u64(),
-        Some(u64::from(expected_screen.height))
-    );
+    if uses_headful || uses_native_screen {
+        assert_eq!(
+            observed["iframe"]["screenWidth"],
+            observed["top"]["screenWidth"]
+        );
+        assert_eq!(
+            observed["iframe"]["screenHeight"],
+            observed["top"]["screenHeight"]
+        );
+    } else {
+        assert_eq!(
+            observed["iframe"]["screenWidth"].as_u64(),
+            Some(u64::from(expected_screen.width))
+        );
+        assert_eq!(
+            observed["iframe"]["screenHeight"].as_u64(),
+            Some(u64::from(expected_screen.height))
+        );
+    }
     for property in [
         "availWidth",
         "availHeight",

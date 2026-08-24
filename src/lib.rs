@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+/// Native desktop capability expectations and observations.
+pub mod capabilities;
 /// Browser runtime and profile-version compatibility inspection.
 pub mod compatibility;
 mod config;
@@ -30,6 +32,10 @@ mod validation;
 
 use chromiumoxide::{Browser, Page};
 
+pub use capabilities::{
+    CapabilityExpectation, NativeCapability, NativeCapabilityExpectations,
+    NativeCapabilityMismatch, NativeCapabilityObservation,
+};
 pub use compatibility::{CompatibilityStatus, compare_browser_versions};
 pub use config::{
     ApplyReport, ConsistencyPolicy, Patch, PatchMode, PatchPlan, PatchState, PlatformProfile,

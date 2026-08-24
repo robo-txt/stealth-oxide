@@ -1,14 +1,20 @@
+use std::path::PathBuf;
+use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::cdp::browser_protocol::{
+    emulation::GetScreenInfosParams, page::CaptureScreenshotFormat,
+};
+use chromiumoxide::detection::{DetectionOptions, default_executable};
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use serde_json::{Value, json};
 use stealth_oxide::{
-    BrowserProfile, BrowserProfileBuilder, CompatibilityStatus, GeolocationConfig, Patch,
-    PermissionOverride, PermissionSetting, PlatformProfile, ProfileVersion, StealthConfig,
+    BrowserProfile, BrowserProfileBuilder, CapabilityExpectation, CompatibilityStatus,
+    GeolocationConfig, NativeCapability, NativeCapabilityExpectations, NativeCapabilityObservation,
+    Patch, PermissionOverride, PermissionSetting, PlatformProfile, ProfileVersion, StealthConfig,
     TargetCoordinator, compare_browser_versions,
 };
 use tokio::time::sleep;
@@ -119,6 +125,12 @@ const PROBE: &str = r#"
         },
         geolocation,
         webgl: webgl(),
+        nativeCapabilities: {
+            webShare: 'share' in navigator && 'canShare' in navigator,
+            contactsManager: 'ContactsManager' in window,
+            contentIndex: 'ContentIndex' in window,
+            networkInformationDownlinkMax: 'downlinkMax' in (window.NetworkInformation?.prototype || {}),
+        },
     };
 
     let iframe = null;
@@ -207,6 +219,15 @@ const PROBE: &str = r#"
                     webglLied: creepFingerprint.canvasWebgl?.lied ?? null,
                 }
                 : null,
+            workerScope: creepFingerprint?.workerScope
+                ? {
+                    userAgent: creepFingerprint.workerScope.userAgent ?? null,
+                    platform: creepFingerprint.workerScope.platform ?? null,
+                    hardwareConcurrency: creepFingerprint.workerScope.hardwareConcurrency ?? null,
+                    deviceMemory: creepFingerprint.workerScope.deviceMemory ?? null,
+                    workerType: creepFingerprint.workerScope.type ?? null,
+                }
+                : null,
             pageTextLength: bodyText.length,
             percentageCandidates: percentages,
             scoreCandidates: isCreepJs
@@ -248,12 +269,18 @@ async fn main() -> Result<()> {
 async fn run_site(site: &str, wait: Duration) -> Result<Value> {
     let parsed = Url::parse(site)?;
     let origin = parsed.origin().ascii_serialization();
-    let profile = selected_profile()?;
+    let selected_profile = selected_profile()?;
+    let (chrome_executable, profile) = runtime_profile(selected_profile)?;
 
     let use_mesa = env_enabled("STEALTH_OXIDE_USE_MESA");
     let mut browser_builder = BrowserConfig::builder()
-        .hide()
+        .chrome_executable(&chrome_executable)
         .arg(("user-agent", profile.navigator().user_agent.as_str()));
+    browser_builder = if env_enabled("STEALTH_OXIDE_DIAGNOSTIC_NEW_HEADLESS") {
+        browser_builder.new_headless_mode()
+    } else {
+        browser_builder.hide()
+    };
     if use_mesa {
         browser_builder = browser_builder
             .arg(("use-gl", "angle"))
@@ -282,7 +309,6 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
         .unwrap_or(profile);
     let profile_name = profile.name().to_string();
     let config = StealthConfig::from_profile(profile.clone())
-        .hardware_concurrency(profile.hardware().hardware_concurrency)
         .permission(PermissionOverride::for_origin(
             "geolocation",
             PermissionSetting::Granted,
@@ -294,8 +320,9 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
         profile.version(),
         &runtime_product,
     ));
-    let page = config.new_page(&browser, site).await?;
-
+    config.apply_browser(&browser).await?;
+    let page = browser.new_page("about:blank").await?;
+    page_config.apply(&page).await?;
     let coordinator = TargetCoordinator::new(&page_config)?;
     let mut attached_targets = coordinator.enable(&page).await?;
     let coordinator_for_task = coordinator.clone();
@@ -303,14 +330,30 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
     let target_task = tokio::spawn(async move {
         while let Some(event) = attached_targets.next().await {
             if let Err(error) = coordinator_for_task.apply(&target_page, &event).await {
-                eprintln!("target configuration failed: {error}");
+                eprintln!(
+                    "target configuration failed for {} ({}): {error}",
+                    event.target_info.r#type, event.target_info.url
+                );
             }
         }
     });
+    page.goto(site).await?;
+    page_config.apply(&page).await?;
+    let native_screen_infos = serde_json::to_value(
+        &page
+            .execute(GetScreenInfosParams::default())
+            .await?
+            .screen_infos,
+    )?;
 
     sleep(wait).await;
 
     let observed: Value = page.evaluate(PROBE).await?.into_value()?;
+    let capability_expectations = native_capability_expectations(&profile);
+    let capability_observation = native_capability_observation(&observed);
+    let capability_mismatches = capability_observation
+        .map(|observation| capability_expectations.mismatches(observation))
+        .unwrap_or_default();
     if let Ok(path) = std::env::var("STEALTH_OXIDE_DIAGNOSTIC_SCREENSHOT") {
         page.save_screenshot(
             ScreenshotParams::builder()
@@ -345,10 +388,125 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
             "profileCompatibility": profile_compatibility,
         },
         "gpuMode": if use_mesa { "mesa" } else { "default" },
+        "nativeCapabilities": {
+            "expectations": capability_expectations_json(capability_expectations),
+            "observed": capability_observation.map(capability_observation_json),
+            "mismatches": capability_mismatches
+                .iter()
+                .map(|mismatch| {
+                    json!({
+                        "capability": capability_name(mismatch.capability),
+                        "expectation": expectation_name(mismatch.expectation),
+                        "observed": mismatch.observed,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        },
+        "nativeScreenInfos": native_screen_infos,
         "navigation": navigation,
         "observed": observed,
         "contextMismatches": mismatches,
     }))
+}
+
+fn native_capability_expectations(profile: &BrowserProfile) -> NativeCapabilityExpectations {
+    match profile.name() {
+        "chrome-linux" => PlatformProfile::Linux.native_capability_expectations(),
+        "chrome-macos" => PlatformProfile::MacOS.native_capability_expectations(),
+        "chrome-windows" => PlatformProfile::Windows.native_capability_expectations(),
+        _ => NativeCapabilityExpectations {
+            web_share: CapabilityExpectation::RuntimeDependent,
+            contacts_manager: CapabilityExpectation::RuntimeDependent,
+            content_index: CapabilityExpectation::RuntimeDependent,
+            network_information_downlink_max: CapabilityExpectation::RuntimeDependent,
+        },
+    }
+}
+
+fn runtime_profile(profile: BrowserProfile) -> Result<(PathBuf, BrowserProfile)> {
+    let executable = default_executable(DetectionOptions::default())
+        .map_err(|message| anyhow::anyhow!(message))?;
+    let output = Command::new(&executable)
+        .arg("--version")
+        .output()
+        .with_context(|| {
+            format!(
+                "failed to inspect Chromium executable {}",
+                executable.display()
+            )
+        })?;
+    if !output.status.success() {
+        bail!("Chromium --version failed for {}", executable.display());
+    }
+    let version_text = String::from_utf8_lossy(&output.stdout);
+    let version = version_text
+        .split_whitespace()
+        .find(|token| {
+            token
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_digit())
+        })
+        .ok_or_else(|| anyhow::anyhow!("Chromium version was not present in --version output"))?;
+    let chrome_major = version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok())
+        .ok_or_else(|| anyhow::anyhow!("invalid Chromium version {version}"))?;
+    let runtime_version = ProfileVersion::new(chrome_major, version);
+    let profile = BrowserProfileBuilder::new(profile)
+        .chrome_version(runtime_version)
+        .build()?;
+    Ok((executable, profile))
+}
+
+fn native_capability_observation(observed: &Value) -> Option<NativeCapabilityObservation> {
+    let capabilities = observed.get("window")?.get("nativeCapabilities")?;
+    Some(NativeCapabilityObservation::new(
+        capabilities.get("webShare")?.as_bool()?,
+        capabilities.get("contactsManager")?.as_bool()?,
+        capabilities.get("contentIndex")?.as_bool()?,
+        capabilities
+            .get("networkInformationDownlinkMax")?
+            .as_bool()?,
+    ))
+}
+
+fn capability_expectations_json(expectations: NativeCapabilityExpectations) -> Value {
+    json!({
+        "webShare": expectation_name(expectations.web_share),
+        "contactsManager": expectation_name(expectations.contacts_manager),
+        "contentIndex": expectation_name(expectations.content_index),
+        "networkInformationDownlinkMax": expectation_name(expectations.network_information_downlink_max),
+    })
+}
+
+fn capability_observation_json(observation: NativeCapabilityObservation) -> Value {
+    json!({
+        "webShare": observation.web_share,
+        "contactsManager": observation.contacts_manager,
+        "contentIndex": observation.content_index,
+        "networkInformationDownlinkMax": observation.network_information_downlink_max,
+    })
+}
+
+fn capability_name(capability: NativeCapability) -> &'static str {
+    match capability {
+        NativeCapability::WebShare => "webShare",
+        NativeCapability::ContactsManager => "contactsManager",
+        NativeCapability::ContentIndex => "contentIndex",
+        NativeCapability::NetworkInformationDownlinkMax => "networkInformationDownlinkMax",
+        _ => "unknown",
+    }
+}
+
+fn expectation_name(expectation: CapabilityExpectation) -> &'static str {
+    match expectation {
+        CapabilityExpectation::Expected => "expected",
+        CapabilityExpectation::NotExpected => "not-expected",
+        CapabilityExpectation::RuntimeDependent => "runtime-dependent",
+        _ => "unknown",
+    }
 }
 
 fn selected_profile() -> Result<BrowserProfile> {
@@ -468,5 +626,42 @@ mod tests {
         assert_eq!(profile.navigator().platform, "Win32");
         assert_eq!(profile.version().unwrap().chrome_major, 150);
         Ok(())
+    }
+
+    #[test]
+    fn reads_native_capability_observations_from_the_probe_shape() {
+        let observed = json!({
+            "window": {
+                "nativeCapabilities": {
+                    "webShare": true,
+                    "contactsManager": false,
+                    "contentIndex": false,
+                    "networkInformationDownlinkMax": false,
+                }
+            }
+        });
+
+        assert_eq!(
+            native_capability_observation(&observed),
+            Some(NativeCapabilityObservation::new(true, false, false, false))
+        );
+    }
+
+    #[test]
+    fn unknown_profile_names_use_runtime_dependent_capability_expectations() {
+        let profile = BrowserProfileBuilder::new(PlatformProfile::Linux.profile())
+            .name("custom")
+            .build()
+            .unwrap();
+
+        let expectations = native_capability_expectations(&profile);
+        assert_eq!(
+            expectations.web_share,
+            CapabilityExpectation::RuntimeDependent
+        );
+        assert_eq!(
+            expectations.contacts_manager,
+            CapabilityExpectation::RuntimeDependent
+        );
     }
 }
