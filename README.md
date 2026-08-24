@@ -304,6 +304,11 @@ STEALTH_OXIDE_DIAGNOSTIC_WAIT=6 cargo run --example site_diagnostic -- \
   https://www.reddit.com/
 ```
 
+Select the profile under test with `STEALTH_OXIDE_DIAGNOSTIC_PROFILE=linux`,
+`windows` (the default), or `macos`. The diagnostic reads the actual CDP
+browser product and aligns only the profile's Chrome UA/UA-CH version tokens to
+that runtime; the selected OS identity and native host surfaces remain intact.
+
 Set `STEALTH_OXIDE_USE_MESA=1` for the optional ANGLE/OpenGL software-GPU
 comparison. The result records the selected GPU mode and the WebGL renderer.
 

@@ -287,6 +287,16 @@ impl ProfileVersion {
     pub fn built_in() -> Self {
         Self::new(BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION)
     }
+
+    /// Parses a Chrome, Chromium, or HeadlessChrome product string.
+    pub fn from_product(product: &str) -> Option<Self> {
+        let (name, version) = product.trim().split_once('/')?;
+        if !matches!(name, "Chrome" | "HeadlessChrome" | "Chromium") {
+            return None;
+        }
+        let major = version.split('.').next()?.parse().ok()?;
+        Some(Self::new(major, version))
+    }
 }
 
 /// Navigator identity and User-Agent Client Hint values.
@@ -684,6 +694,32 @@ impl BrowserProfileBuilder {
         self
     }
 
+    /// Updates Chrome version tokens in the UA and Client Hints metadata.
+    ///
+    /// This is useful when a typed platform profile is used with a real
+    /// Chromium binary whose version differs from the profile's default.
+    /// Operating-system identity and host-native surfaces remain unchanged.
+    pub fn chrome_version(mut self, version: ProfileVersion) -> Self {
+        replace_user_agent_chrome_version(
+            &mut self.profile.navigator.user_agent,
+            &version.chrome_version,
+        );
+        if let Some(client_hints) = &mut self.profile.navigator.client_hints {
+            for brand in &mut client_hints.brands {
+                if matches!(brand.brand.as_str(), "Chromium" | "Google Chrome") {
+                    brand.version = version.chrome_major.to_string();
+                }
+            }
+            for brand in &mut client_hints.full_version_list {
+                if matches!(brand.brand.as_str(), "Chromium" | "Google Chrome") {
+                    brand.version = version.chrome_version.clone();
+                }
+            }
+        }
+        self.profile.version = Some(version);
+        self
+    }
+
     /// Replaces the ordered navigator language list.
     pub fn languages<I, S>(mut self, languages: I) -> Self
     where
@@ -780,4 +816,16 @@ impl BrowserProfileBuilder {
         crate::validation::validate_profile(&self.profile)?;
         Ok(self.profile)
     }
+}
+
+fn replace_user_agent_chrome_version(user_agent: &mut String, version: &str) {
+    let Some(marker_start) = user_agent.find("Chrome/") else {
+        return;
+    };
+    let version_start = marker_start + "Chrome/".len();
+    let version_end = user_agent[version_start..]
+        .find(char::is_whitespace)
+        .map(|offset| version_start + offset)
+        .unwrap_or(user_agent.len());
+    user_agent.replace_range(version_start..version_end, version);
 }

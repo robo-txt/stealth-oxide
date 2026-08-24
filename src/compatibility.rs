@@ -35,28 +35,20 @@ pub fn compare_browser_versions(
     let Some(profile) = profile else {
         return CompatibilityStatus::UnknownProfileVersion;
     };
-    let Some(runtime_major) = runtime_chrome_major(runtime_product) else {
+    let Some(runtime_version) = ProfileVersion::from_product(runtime_product) else {
         return CompatibilityStatus::UnknownRuntimeVersion;
     };
 
-    if profile.chrome_major == runtime_major {
+    if profile.chrome_major == runtime_version.chrome_major {
         CompatibilityStatus::Compatible {
-            chrome_major: runtime_major,
+            chrome_major: runtime_version.chrome_major,
         }
     } else {
         CompatibilityStatus::MajorMismatch {
             profile_major: profile.chrome_major,
-            runtime_major,
+            runtime_major: runtime_version.chrome_major,
         }
     }
-}
-
-fn runtime_chrome_major(product: &str) -> Option<u32> {
-    let (name, version) = product.trim().split_once('/')?;
-    if !matches!(name, "Chrome" | "HeadlessChrome" | "Chromium") {
-        return None;
-    }
-    version.split('.').next()?.parse().ok()
 }
 
 #[cfg(test)]

@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use serde_json::{Value, json};
-use stealth_oxide::profiles::chrome_windows::chrome_windows;
 use stealth_oxide::{
-    GeolocationConfig, Patch, PermissionOverride, PermissionSetting, StealthConfig,
-    TargetCoordinator,
+    BrowserProfile, BrowserProfileBuilder, CompatibilityStatus, GeolocationConfig, Patch,
+    PermissionOverride, PermissionSetting, PlatformProfile, ProfileVersion, StealthConfig,
+    TargetCoordinator, compare_browser_versions,
 };
 use tokio::time::sleep;
 use url::Url;
@@ -173,6 +175,8 @@ const PROBE: &str = r#"
 
     const bodyText = document.body?.innerText ?? '';
     const isCreepJs = /creepjs/i.test(`${location.hostname} ${document.title}`);
+    const creepFingerprint = globalThis.Fingerprint;
+    const creepHeadless = creepFingerprint?.headless;
     const lines = bodyText
         .split(/\n+/)
         .map(line => line.trim())
@@ -187,6 +191,22 @@ const PROBE: &str = r#"
         worker,
         creepjs: {
             detected: isCreepJs,
+            fingerprintHeadless: creepHeadless
+                ? {
+                    likeHeadless: creepHeadless.likeHeadless ?? null,
+                    headless: creepHeadless.headless ?? null,
+                    stealth: creepHeadless.stealth ?? null,
+                }
+                : null,
+            fingerprintLies: creepFingerprint?.lies ?? null,
+            fingerprintStatus: creepFingerprint
+                ? {
+                    navigatorLied: creepFingerprint.navigator?.lied ?? null,
+                    workerLied: creepFingerprint.workerScope?.lied ?? null,
+                    screenLied: creepFingerprint.screen?.lied ?? null,
+                    webglLied: creepFingerprint.canvasWebgl?.lied ?? null,
+                }
+                : null,
             pageTextLength: bodyText.length,
             percentageCandidates: percentages,
             scoreCandidates: isCreepJs
@@ -228,16 +248,7 @@ async fn main() -> Result<()> {
 async fn run_site(site: &str, wait: Duration) -> Result<Value> {
     let parsed = Url::parse(site)?;
     let origin = parsed.origin().ascii_serialization();
-    let profile = chrome_windows();
-    let config = StealthConfig::from_profile(profile.clone())
-        .hardware_concurrency(profile.hardware().hardware_concurrency)
-        .permission(PermissionOverride::for_origin(
-            "geolocation",
-            PermissionSetting::Granted,
-            &origin,
-        ))
-        .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
-    let page_config = config.clone().use_native(Patch::Permissions);
+    let profile = selected_profile()?;
 
     let use_mesa = env_enabled("STEALTH_OXIDE_USE_MESA");
     let mut browser_builder = BrowserConfig::builder()
@@ -260,6 +271,29 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
         }
     });
 
+    let runtime_product = browser.version().await?.product;
+    let profile = ProfileVersion::from_product(&runtime_product)
+        .map(|version| {
+            BrowserProfileBuilder::new(profile.clone())
+                .chrome_version(version)
+                .build()
+        })
+        .transpose()?
+        .unwrap_or(profile);
+    let profile_name = profile.name().to_string();
+    let config = StealthConfig::from_profile(profile.clone())
+        .hardware_concurrency(profile.hardware().hardware_concurrency)
+        .permission(PermissionOverride::for_origin(
+            "geolocation",
+            PermissionSetting::Granted,
+            &origin,
+        ))
+        .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
+    let page_config = config.clone().use_native(Patch::Permissions);
+    let profile_compatibility = compatibility_json(compare_browser_versions(
+        profile.version(),
+        &runtime_product,
+    ));
     let page = config.new_page(&browser, site).await?;
 
     let coordinator = TargetCoordinator::new(&page_config)?;
@@ -277,6 +311,18 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
     sleep(wait).await;
 
     let observed: Value = page.evaluate(PROBE).await?.into_value()?;
+    if let Ok(path) = std::env::var("STEALTH_OXIDE_DIAGNOSTIC_SCREENSHOT") {
+        page.save_screenshot(
+            ScreenshotParams::builder()
+                .format(CaptureScreenshotFormat::Png)
+                .full_page(true)
+                .build(),
+            &path,
+        )
+        .await
+        .with_context(|| format!("failed to save screenshot to {path}"))?;
+        eprintln!("saved screenshot: {path}");
+    }
     let final_url = page.url().await?.map(|url| sanitize_url(&url));
     let navigation = json!({
         "status": null,
@@ -293,12 +339,60 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
     Ok(json!({
         "site": sanitize_url(site),
         "origin": origin,
-        "profile": "chrome-windows",
+        "profile": profile_name,
+        "runtime": {
+            "product": runtime_product,
+            "profileCompatibility": profile_compatibility,
+        },
         "gpuMode": if use_mesa { "mesa" } else { "default" },
         "navigation": navigation,
         "observed": observed,
         "contextMismatches": mismatches,
     }))
+}
+
+fn selected_profile() -> Result<BrowserProfile> {
+    profile_from_name(
+        std::env::var("STEALTH_OXIDE_DIAGNOSTIC_PROFILE")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn profile_from_name(value: Option<&str>) -> Result<BrowserProfile> {
+    match value.unwrap_or("windows") {
+        "linux" => Ok(PlatformProfile::Linux.profile()),
+        "windows" => Ok(PlatformProfile::Windows.profile()),
+        "macos" | "mac" => Ok(PlatformProfile::MacOS.profile()),
+        value => {
+            bail!("STEALTH_OXIDE_DIAGNOSTIC_PROFILE must be linux, windows, or macos; got {value}")
+        }
+    }
+}
+
+fn compatibility_json(status: CompatibilityStatus) -> Value {
+    match status {
+        CompatibilityStatus::Compatible { chrome_major } => {
+            json!({ "status": "compatible", "chromeMajor": chrome_major })
+        }
+        CompatibilityStatus::MajorMismatch {
+            profile_major,
+            runtime_major,
+        } => json!({
+            "status": "major-mismatch",
+            "profileMajor": profile_major,
+            "runtimeMajor": runtime_major,
+        }),
+        CompatibilityStatus::UnknownProfileVersion => json!({
+            "status": "unknown-profile-version",
+        }),
+        CompatibilityStatus::UnknownRuntimeVersion => json!({
+            "status": "unknown-runtime-version",
+        }),
+        _ => json!({
+            "status": "unknown",
+        }),
+    }
 }
 
 fn sanitize_url(value: &str) -> String {
@@ -335,4 +429,44 @@ fn compare_contexts(observed: &Value) -> Vec<String> {
 
 fn env_enabled(name: &str) -> bool {
     matches!(std::env::var(name).as_deref(), Ok("1") | Ok("true"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selects_each_builtin_profile() -> Result<()> {
+        for (name, expected) in [
+            ("linux", "chrome-linux"),
+            ("windows", "chrome-windows"),
+            ("macos", "chrome-macos"),
+            ("mac", "chrome-macos"),
+        ] {
+            assert_eq!(profile_from_name(Some(name))?.name(), expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unknown_profile_names() {
+        assert!(profile_from_name(Some("android")).is_err());
+    }
+
+    #[test]
+    fn adapts_profile_chrome_version_without_changing_platform() -> Result<()> {
+        let profile = BrowserProfileBuilder::new(PlatformProfile::Windows.profile())
+            .chrome_version(ProfileVersion::from_product("Chrome/150.0.7871.128").unwrap())
+            .build()?;
+
+        assert!(
+            profile
+                .navigator()
+                .user_agent
+                .contains("Chrome/150.0.7871.128")
+        );
+        assert_eq!(profile.navigator().platform, "Win32");
+        assert_eq!(profile.version().unwrap().chrome_major, 150);
+        Ok(())
+    }
 }
