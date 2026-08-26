@@ -21,6 +21,7 @@ and reproducible QA environments.
 ## What you can do
 
 - Start from coherent Linux, macOS, or Windows Chrome profiles.
+- Select a common Windows or macOS GPU identity for CPU-rendered Docker jobs.
 - Apply identity, locale, timezone, screen, media-feature, and touch settings.
 - Override only the surfaces your application needs while preserving native
   Chromium values everywhere else.
@@ -127,6 +128,54 @@ async fn main() -> Result<()> {
 
 Apply the configuration before navigation so the first page scripts observe
 the selected values.
+
+### Selecting a platform and Docker GPU
+
+Select the operating-system profile first, then select a GPU from that
+platform's catalog. Apply the GPU environment before launching Chromium:
+
+```rust,no_run
+use anyhow::Result;
+use chromiumoxide::BrowserConfig;
+use stealth_oxide::{GpuPreset, PlatformProfile, StealthConfig};
+
+fn selected_browser() -> Result<(BrowserConfig, StealthConfig)> {
+    let platform = PlatformProfile::Windows;
+    let gpu = GpuPreset::WindowsIntelIrisXe;
+    assert!(platform.supports_gpu(gpu));
+
+    let stealth = StealthConfig::from_profile(platform.profile()).docker_gpu(gpu);
+    let browser_config = stealth
+        .apply_docker_gpu_environment(BrowserConfig::builder().hide())
+        .build()
+        .map_err(anyhow::Error::msg)?;
+    Ok((browser_config, stealth))
+}
+```
+
+The selected environment is native to the Chromium process: it uses
+Mesa/LLVMpipe for rendering and configures ANGLE's reported vendor and
+renderer. It does not add GPU hardware to the container and it does not make a
+Linux runtime fully equivalent to Windows or macOS. Apply the returned
+`StealthConfig` to the page after launch as shown above.
+
+The Windows catalog includes Intel UHD 620, Intel Iris Xe, NVIDIA GTX 1650,
+NVIDIA RTX 3060, and AMD Radeon RX 580. The macOS catalog includes Intel Iris
+Plus 645, AMD Radeon Pro 5500M, Apple M1, and Apple M2.
+
+The diagnostic scraper exposes the same selection through environment
+variables. For example:
+
+```text
+STEALTH_OXIDE_DIAGNOSTIC_PROFILE=windows \
+STEALTH_OXIDE_GPU_PRESET=windows-intel-iris-xe \
+STEALTH_OXIDE_DIAGNOSTIC_SCREENSHOT=/tmp/windows-iris-xe.png \
+cargo run --example site_diagnostic -- https://example.com/
+```
+
+The GPU preset must belong to the selected platform. Omitting it preserves the
+existing host/default GPU behavior; setting it enables the Mesa launch path in
+the diagnostic job.
 
 ## Profiles and patches
 

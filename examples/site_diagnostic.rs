@@ -13,9 +13,9 @@ use futures::StreamExt;
 use serde_json::{Value, json};
 use stealth_oxide::{
     BrowserProfile, BrowserProfileBuilder, CapabilityExpectation, CompatibilityStatus,
-    GeolocationConfig, NativeCapability, NativeCapabilityExpectations, NativeCapabilityObservation,
-    Patch, PermissionOverride, PermissionSetting, PlatformProfile, ProfileVersion, StealthConfig,
-    TargetCoordinator, compare_browser_versions,
+    GeolocationConfig, GpuPreset, GpuProfile, NativeCapability, NativeCapabilityExpectations,
+    NativeCapabilityObservation, Patch, PermissionOverride, PermissionSetting, PlatformProfile,
+    ProfileVersion, StealthConfig, TargetCoordinator, compare_browser_versions,
 };
 use tokio::time::sleep;
 use url::Url;
@@ -269,10 +269,12 @@ async fn main() -> Result<()> {
 async fn run_site(site: &str, wait: Duration) -> Result<Value> {
     let parsed = Url::parse(site)?;
     let origin = parsed.origin().ascii_serialization();
-    let selected_profile = selected_profile()?;
+    let selected_platform = selected_platform()?;
+    let selected_gpu = selected_gpu(selected_platform)?;
+    let selected_profile = selected_platform.profile();
     let (chrome_executable, profile) = runtime_profile(selected_profile)?;
 
-    let use_mesa = env_enabled("STEALTH_OXIDE_USE_MESA");
+    let use_mesa = env_enabled("STEALTH_OXIDE_USE_MESA") || selected_gpu.is_some();
     let mut browser_builder = BrowserConfig::builder()
         .chrome_executable(&chrome_executable)
         .arg(("user-agent", profile.navigator().user_agent.as_str()));
@@ -287,6 +289,11 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
             .arg(("use-angle", "gl"))
             .arg("ignore-gpu-blocklist")
             .arg("enable-gpu-rasterization");
+        if let Some(gpu) = selected_gpu {
+            browser_builder = StealthConfig::from_profile(profile.clone())
+                .docker_gpu(gpu)
+                .apply_docker_gpu_environment(browser_builder);
+        }
     }
     let browser_config = browser_builder.build().map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(browser_config).await?;
@@ -308,13 +315,19 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
         .transpose()?
         .unwrap_or(profile);
     let profile_name = profile.name().to_string();
-    let config = StealthConfig::from_profile(profile.clone())
+    let mut config = StealthConfig::from_profile(profile.clone())
         .permission(PermissionOverride::for_origin(
             "geolocation",
             PermissionSetting::Granted,
             &origin,
         ))
         .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
+    if let Some(gpu) = selected_gpu {
+        config = config.docker_gpu(gpu);
+    }
+    if env_enabled("STEALTH_OXIDE_GPU_SURFACE") {
+        config = config.gpu_profile(GpuProfile::mesa_amd_renoir());
+    }
     let page_config = config.clone().use_native(Patch::Permissions);
     let profile_compatibility = compatibility_json(compare_browser_versions(
         profile.version(),
@@ -388,6 +401,7 @@ async fn run_site(site: &str, wait: Duration) -> Result<Value> {
             "profileCompatibility": profile_compatibility,
         },
         "gpuMode": if use_mesa { "mesa" } else { "default" },
+        "gpuPreset": selected_gpu.map(GpuPreset::name),
         "nativeCapabilities": {
             "expectations": capability_expectations_json(capability_expectations),
             "observed": capability_observation.map(capability_observation_json),
@@ -509,23 +523,60 @@ fn expectation_name(expectation: CapabilityExpectation) -> &'static str {
     }
 }
 
-fn selected_profile() -> Result<BrowserProfile> {
-    profile_from_name(
-        std::env::var("STEALTH_OXIDE_DIAGNOSTIC_PROFILE")
-            .ok()
-            .as_deref(),
-    )
-}
-
-fn profile_from_name(value: Option<&str>) -> Result<BrowserProfile> {
-    match value.unwrap_or("windows") {
-        "linux" => Ok(PlatformProfile::Linux.profile()),
-        "windows" => Ok(PlatformProfile::Windows.profile()),
-        "macos" | "mac" => Ok(PlatformProfile::MacOS.profile()),
+fn selected_platform() -> Result<PlatformProfile> {
+    match std::env::var("STEALTH_OXIDE_DIAGNOSTIC_PROFILE")
+        .ok()
+        .as_deref()
+        .unwrap_or("windows")
+    {
+        "linux" => Ok(PlatformProfile::Linux),
+        "windows" => Ok(PlatformProfile::Windows),
+        "macos" | "mac" => Ok(PlatformProfile::MacOS),
         value => {
             bail!("STEALTH_OXIDE_DIAGNOSTIC_PROFILE must be linux, windows, or macos; got {value}")
         }
     }
+}
+
+#[cfg(test)]
+fn profile_from_name(value: Option<&str>) -> Result<BrowserProfile> {
+    let platform = match value.unwrap_or("windows") {
+        "linux" => PlatformProfile::Linux,
+        "windows" => PlatformProfile::Windows,
+        "macos" | "mac" => PlatformProfile::MacOS,
+        value => {
+            bail!("STEALTH_OXIDE_DIAGNOSTIC_PROFILE must be linux, windows, or macos; got {value}")
+        }
+    };
+    Ok(platform.profile())
+}
+
+fn selected_gpu(platform: PlatformProfile) -> Result<Option<GpuPreset>> {
+    let Some(value) = std::env::var("STEALTH_OXIDE_GPU_PRESET").ok() else {
+        return Ok(None);
+    };
+    let gpu = match value.as_str() {
+        "windows-intel-uhd-620" => GpuPreset::WindowsIntelUhd620,
+        "windows-intel-iris-xe" => GpuPreset::WindowsIntelIrisXe,
+        "windows-nvidia-gtx-1650" => GpuPreset::WindowsNvidiaGtx1650,
+        "windows-nvidia-rtx-3060" => GpuPreset::WindowsNvidiaRtx3060,
+        "windows-amd-radeon-rx-580" => GpuPreset::WindowsAmdRadeonRx580,
+        "macos-intel-iris-plus-645" => GpuPreset::MacosIntelIrisPlus645,
+        "macos-amd-radeon-pro-5500m" => GpuPreset::MacosAmdRadeonPro5500m,
+        "macos-apple-m1" => GpuPreset::MacosAppleM1,
+        "macos-apple-m2" => GpuPreset::MacosAppleM2,
+        value => {
+            bail!("unknown STEALTH_OXIDE_GPU_PRESET: {value}")
+        }
+    };
+    if !platform.supports_gpu(gpu) {
+        bail!(
+            "GPU preset {} is not compatible with {:?}; select a GPU from the selected platform catalog",
+            gpu.name(),
+            platform
+        );
+    }
+    Ok(Some(gpu))
 }
 
 fn compatibility_json(status: CompatibilityStatus) -> Value {

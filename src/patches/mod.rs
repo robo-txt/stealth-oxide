@@ -1,4 +1,5 @@
 pub(crate) mod geolocation;
+pub(crate) mod gpu;
 pub(crate) mod hardware;
 pub(crate) mod identity;
 pub(crate) mod locale;

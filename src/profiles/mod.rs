@@ -68,6 +68,126 @@ pub struct HardwareProfile {
     pub hardware_concurrency: u32,
 }
 
+/// CPU-rendered Docker GPU identities commonly seen on Windows and macOS.
+///
+/// These presets describe the identity exposed by ANGLE. They do not provide
+/// hardware acceleration; the runtime remains Mesa/LLVMpipe when the preset's
+/// launch environment is applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GpuPreset {
+    /// Windows laptop Intel UHD 620.
+    WindowsIntelUhd620,
+    /// Windows laptop Intel Iris Xe.
+    WindowsIntelIrisXe,
+    /// Windows desktop NVIDIA GeForce GTX 1650.
+    WindowsNvidiaGtx1650,
+    /// Windows desktop NVIDIA GeForce RTX 3060.
+    WindowsNvidiaRtx3060,
+    /// Windows desktop AMD Radeon RX 580.
+    WindowsAmdRadeonRx580,
+    /// macOS Intel Iris Plus 645.
+    MacosIntelIrisPlus645,
+    /// macOS AMD Radeon Pro 5500M.
+    MacosAmdRadeonPro5500m,
+    /// Apple M1 integrated GPU.
+    MacosAppleM1,
+    /// Apple M2 integrated GPU.
+    MacosAppleM2,
+}
+
+impl GpuPreset {
+    /// Returns the stable catalog identifier.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::WindowsIntelUhd620 => "windows-intel-uhd-620",
+            Self::WindowsIntelIrisXe => "windows-intel-iris-xe",
+            Self::WindowsNvidiaGtx1650 => "windows-nvidia-gtx-1650",
+            Self::WindowsNvidiaRtx3060 => "windows-nvidia-rtx-3060",
+            Self::WindowsAmdRadeonRx580 => "windows-amd-radeon-rx-580",
+            Self::MacosIntelIrisPlus645 => "macos-intel-iris-plus-645",
+            Self::MacosAmdRadeonPro5500m => "macos-amd-radeon-pro-5500m",
+            Self::MacosAppleM1 => "macos-apple-m1",
+            Self::MacosAppleM2 => "macos-apple-m2",
+        }
+    }
+
+    /// Returns the ANGLE/Mesa process settings for this identity.
+    pub const fn runtime(self) -> GpuRuntimeProfile {
+        match self {
+            Self::WindowsIntelUhd620 => GpuRuntimeProfile {
+                angle_vendor: "Intel",
+                angle_renderer: "Intel(R) UHD Graphics 620",
+            },
+            Self::WindowsIntelIrisXe => GpuRuntimeProfile {
+                angle_vendor: "Intel",
+                angle_renderer: "Intel(R) Iris(R) Xe Graphics",
+            },
+            Self::WindowsNvidiaGtx1650 => GpuRuntimeProfile {
+                angle_vendor: "NVIDIA Corporation",
+                angle_renderer: "NVIDIA GeForce GTX 1650",
+            },
+            Self::WindowsNvidiaRtx3060 => GpuRuntimeProfile {
+                angle_vendor: "NVIDIA Corporation",
+                angle_renderer: "NVIDIA GeForce RTX 3060",
+            },
+            Self::WindowsAmdRadeonRx580 => GpuRuntimeProfile {
+                angle_vendor: "AMD",
+                angle_renderer: "AMD Radeon RX 580",
+            },
+            Self::MacosIntelIrisPlus645 => GpuRuntimeProfile {
+                angle_vendor: "Intel",
+                angle_renderer: "Intel Iris Plus Graphics 645",
+            },
+            Self::MacosAmdRadeonPro5500m => GpuRuntimeProfile {
+                angle_vendor: "AMD",
+                angle_renderer: "AMD Radeon Pro 5500M",
+            },
+            Self::MacosAppleM1 => GpuRuntimeProfile {
+                angle_vendor: "Apple Inc.",
+                angle_renderer: "Apple M1",
+            },
+            Self::MacosAppleM2 => GpuRuntimeProfile {
+                angle_vendor: "Apple Inc.",
+                angle_renderer: "Apple M2",
+            },
+        }
+    }
+
+    /// Returns the JavaScript-visible GPU identity associated with this preset.
+    ///
+    /// This is an opt-in JavaScript patch and is separate from the native
+    /// Docker environment returned by [`Self::runtime`].
+    pub fn webgl_profile(self) -> GpuProfile {
+        let runtime = self.runtime();
+        GpuProfile::new(runtime.angle_vendor, runtime.angle_renderer)
+    }
+}
+
+/// Native process identity settings for CPU-rendered Docker Chromium.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GpuRuntimeProfile {
+    /// Value supplied to ANGLE_GL_VENDOR.
+    pub angle_vendor: &'static str,
+    /// Value supplied to ANGLE_GL_RENDERER.
+    pub angle_renderer: &'static str,
+}
+
+impl GpuRuntimeProfile {
+    /// Returns environment variables for a Mesa/LLVMpipe Docker process.
+    ///
+    /// ANGLE_GL_VERSION is intentionally omitted so Chromium keeps its native
+    /// version and capability surface.
+    pub fn docker_process_envs(self) -> [(String, String); 4] {
+        [
+            ("LIBGL_ALWAYS_SOFTWARE".into(), "true".into()),
+            ("MESA_LOADER_DRIVER_OVERRIDE".into(), "llvmpipe".into()),
+            ("ANGLE_GL_VENDOR".into(), self.angle_vendor.into()),
+            ("ANGLE_GL_RENDERER".into(), self.angle_renderer.into()),
+        ]
+    }
+}
+
 /// Permission setting understood by Chromium's native Browser domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionSetting {
@@ -201,6 +321,73 @@ impl HardwareProfile {
         Self {
             hardware_concurrency,
         }
+    }
+}
+
+/// JavaScript-visible WebGL identity for an opt-in GPU surface override.
+///
+/// This experimental profile changes WebGL string queries while leaving
+/// Chromium's native renderer in place. Numeric limits, extensions, shader
+/// precision, and pixel output are intentionally not represented yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct GpuProfile {
+    /// Value returned by `gl.getParameter(gl.VENDOR)`.
+    pub vendor: String,
+    /// Value returned by `gl.getParameter(gl.RENDERER)`.
+    pub renderer: String,
+    /// Value returned for `UNMASKED_VENDOR_WEBGL`.
+    pub unmasked_vendor: String,
+    /// Value returned for `UNMASKED_RENDERER_WEBGL`.
+    pub unmasked_renderer: String,
+    /// Value returned by `gl.getParameter(gl.VERSION)`.
+    pub version: String,
+    /// Value returned by `gl.getParameter(gl.SHADING_LANGUAGE_VERSION)`.
+    pub shading_language_version: String,
+}
+
+impl GpuProfile {
+    /// Creates a profile with Chromium's standard masked WebGL strings.
+    pub fn new(unmasked_vendor: impl Into<String>, unmasked_renderer: impl Into<String>) -> Self {
+        Self {
+            vendor: "WebKit".to_string(),
+            renderer: "WebKit WebGL".to_string(),
+            unmasked_vendor: unmasked_vendor.into(),
+            unmasked_renderer: unmasked_renderer.into(),
+            version: "WebGL 1.0 (OpenGL ES 2.0 Chromium)".to_string(),
+            shading_language_version: "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)"
+                .to_string(),
+        }
+    }
+
+    /// Returns the AMD Renoir/Mesa identity observed on the development host.
+    pub fn mesa_amd_renoir() -> Self {
+        Self::new(
+            "Google Inc. (AMD)",
+            "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+        )
+    }
+
+    /// Replaces the masked WebGL vendor and renderer strings.
+    pub fn masked_strings(
+        mut self,
+        vendor: impl Into<String>,
+        renderer: impl Into<String>,
+    ) -> Self {
+        self.vendor = vendor.into();
+        self.renderer = renderer.into();
+        self
+    }
+
+    /// Replaces the WebGL and GLSL version strings.
+    pub fn version_strings(
+        mut self,
+        version: impl Into<String>,
+        shading_language_version: impl Into<String>,
+    ) -> Self {
+        self.version = version.into();
+        self.shading_language_version = shading_language_version.into();
+        self
     }
 }
 

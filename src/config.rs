@@ -4,10 +4,11 @@ use crate::profiles::chrome_linux::chrome_linux;
 use crate::profiles::chrome_macos::chrome_macos;
 use crate::profiles::chrome_windows::chrome_windows;
 use crate::profiles::{
-    BrowserProfile, ColorGamut, ColorScheme, ForcedColors, GeolocationConfig, MediaFeaturesConfig,
-    NavigatorProfile, PermissionOverride, ReducedMotion, ScreenConfig, TouchConfig,
-    UserAgentClientHintsProfile,
+    BrowserProfile, ColorGamut, ColorScheme, ForcedColors, GeolocationConfig, GpuPreset,
+    GpuProfile, GpuRuntimeProfile, MediaFeaturesConfig, NavigatorProfile, PermissionOverride,
+    ReducedMotion, ScreenConfig, TouchConfig, UserAgentClientHintsProfile,
 };
+use chromiumoxide::browser::BrowserConfigBuilder;
 
 /// Built-in desktop profile selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,8 @@ pub enum Patch {
     Permissions,
     /// Native geolocation position or unavailable-state override.
     Geolocation,
+    /// Experimental JavaScript-visible WebGL GPU identity override.
+    Gpu,
 }
 
 /// Controls how one patch obtains its value.
@@ -89,6 +92,36 @@ impl PlatformProfile {
         }
     }
 
+    /// Returns the GPU identities commonly associated with this desktop
+    /// platform. The Linux catalog is empty because this crate does not make
+    /// assumptions about a host GPU for a native Linux process.
+    pub const fn gpu_presets(self) -> &'static [GpuPreset] {
+        const WINDOWS: &[GpuPreset] = &[
+            GpuPreset::WindowsIntelUhd620,
+            GpuPreset::WindowsIntelIrisXe,
+            GpuPreset::WindowsNvidiaGtx1650,
+            GpuPreset::WindowsNvidiaRtx3060,
+            GpuPreset::WindowsAmdRadeonRx580,
+        ];
+        const MACOS: &[GpuPreset] = &[
+            GpuPreset::MacosIntelIrisPlus645,
+            GpuPreset::MacosAmdRadeonPro5500m,
+            GpuPreset::MacosAppleM1,
+            GpuPreset::MacosAppleM2,
+        ];
+
+        match self {
+            Self::Linux => &[],
+            Self::MacOS => MACOS,
+            Self::Windows => WINDOWS,
+        }
+    }
+
+    /// Returns whether a GPU preset belongs to this platform's catalog.
+    pub fn supports_gpu(self, gpu: GpuPreset) -> bool {
+        self.gpu_presets().contains(&gpu)
+    }
+
     /// Returns native capability expectations for a real desktop Chrome
     /// runtime on this platform.
     ///
@@ -122,6 +155,8 @@ pub struct StealthConfig {
     hardware_concurrency: PatchMode<u32>,
     permissions: PatchMode<Vec<PermissionOverride>>,
     geolocation: PatchMode<GeolocationConfig>,
+    gpu: PatchMode<GpuProfile>,
+    docker_gpu: Option<GpuRuntimeProfile>,
     policy: ConsistencyPolicy,
     defaults: BrowserProfile,
 }
@@ -140,6 +175,8 @@ impl StealthConfig {
             hardware_concurrency: PatchMode::Disabled,
             permissions: PatchMode::Disabled,
             geolocation: PatchMode::Disabled,
+            gpu: PatchMode::Disabled,
+            docker_gpu: None,
             policy: ConsistencyPolicy::Strict,
             defaults,
         }
@@ -164,6 +201,10 @@ impl StealthConfig {
             hardware_concurrency: PatchMode::Native,
             permissions: PatchMode::Native,
             geolocation: PatchMode::Native,
+            // GPU identity is never inferred from an operating-system
+            // profile. It must be selected explicitly from a reference GPU.
+            gpu: PatchMode::Disabled,
+            docker_gpu: None,
             policy: ConsistencyPolicy::Strict,
             defaults: profile,
         }
@@ -195,7 +236,7 @@ impl StealthConfig {
                 self.hardware_concurrency =
                     PatchMode::Override(self.defaults.hardware.hardware_concurrency);
             }
-            Patch::Permissions | Patch::Geolocation => {}
+            Patch::Permissions | Patch::Geolocation | Patch::Gpu => {}
         }
         self
     }
@@ -212,6 +253,7 @@ impl StealthConfig {
             Patch::HardwareConcurrency => self.hardware_concurrency = PatchMode::Disabled,
             Patch::Permissions => self.permissions = PatchMode::Disabled,
             Patch::Geolocation => self.geolocation = PatchMode::Disabled,
+            Patch::Gpu => self.gpu = PatchMode::Disabled,
         }
         self
     }
@@ -228,6 +270,7 @@ impl StealthConfig {
             Patch::HardwareConcurrency => self.hardware_concurrency = PatchMode::Native,
             Patch::Permissions => self.permissions = PatchMode::Native,
             Patch::Geolocation => self.geolocation = PatchMode::Native,
+            Patch::Gpu => self.gpu = PatchMode::Native,
         }
         self
     }
@@ -429,6 +472,48 @@ impl StealthConfig {
         self
     }
 
+    /// Selects an experimental JavaScript-visible WebGL GPU identity.
+    pub fn gpu_profile(mut self, profile: GpuProfile) -> Self {
+        self.gpu = PatchMode::Override(profile);
+        self
+    }
+
+    /// Sets the complete GPU surface patch mode.
+    pub fn gpu_profile_patch(mut self, mode: PatchMode<GpuProfile>) -> Self {
+        self.gpu = mode;
+        self
+    }
+
+    /// Selects a GPU identity for a CPU-rendered Mesa/LLVMpipe Docker process.
+    ///
+    /// This setting must be applied to the [`BrowserConfigBuilder`] before
+    /// Chromium launches. It changes the native ANGLE process environment; it
+    /// does not add a JavaScript WebGL proxy and it does not provide GPU
+    /// hardware acceleration.
+    pub fn docker_gpu(mut self, gpu: GpuPreset) -> Self {
+        self.docker_gpu = Some(gpu.runtime());
+        self
+    }
+
+    /// Selects explicit native GPU process settings for a Docker runtime.
+    pub fn docker_gpu_runtime(mut self, gpu: GpuRuntimeProfile) -> Self {
+        self.docker_gpu = Some(gpu);
+        self
+    }
+
+    /// Applies the selected Docker GPU environment to a Chromiumoxide launch
+    /// builder. Call this before [`BrowserConfigBuilder::build`] and before
+    /// launching Chromium.
+    pub fn apply_docker_gpu_environment(
+        &self,
+        builder: BrowserConfigBuilder,
+    ) -> BrowserConfigBuilder {
+        match self.docker_gpu {
+            Some(gpu) => builder.envs(gpu.docker_process_envs()),
+            None => builder,
+        }
+    }
+
     /// Returns the selected consistency policy.
     pub const fn policy(&self) -> ConsistencyPolicy {
         self.policy
@@ -446,6 +531,7 @@ impl StealthConfig {
             Patch::HardwareConcurrency => state(&self.hardware_concurrency),
             Patch::Permissions => state(&self.permissions),
             Patch::Geolocation => state(&self.geolocation),
+            Patch::Gpu => state(&self.gpu),
         }
     }
 
@@ -461,6 +547,7 @@ impl StealthConfig {
             Patch::Touch,
             Patch::Geolocation,
             Patch::Permissions,
+            Patch::Gpu,
         ]
         .into_iter()
         .map(|patch| (patch, self.patch_state(patch)))
@@ -521,6 +608,16 @@ impl StealthConfig {
         override_value(&self.geolocation)
     }
 
+    /// Returns the configured experimental GPU identity, if enabled.
+    pub fn gpu_profile_override(&self) -> Option<&GpuProfile> {
+        override_value(&self.gpu)
+    }
+
+    /// Returns the selected native Docker GPU settings, if configured.
+    pub const fn docker_gpu_override(&self) -> Option<GpuRuntimeProfile> {
+        self.docker_gpu
+    }
+
     pub(crate) fn identity_mode(&self) -> &PatchMode<NavigatorProfile> {
         &self.identity
     }
@@ -555,6 +652,10 @@ impl StealthConfig {
 
     pub(crate) fn geolocation_mode(&self) -> &PatchMode<GeolocationConfig> {
         &self.geolocation
+    }
+
+    pub(crate) fn gpu_mode(&self) -> &PatchMode<GpuProfile> {
+        &self.gpu
     }
 
     fn identity_value_mut(&mut self) -> &mut NavigatorProfile {

@@ -6,7 +6,7 @@ use chromiumoxide::cdp::browser_protocol::page::GetFrameTreeParams;
 use chromiumoxide::cdp::browser_protocol::system_info::{GetInfoParams, GetInfoReturns};
 use chromiumoxide::{Browser, BrowserConfig, Page};
 use futures::StreamExt;
-use stealth_oxide::{BrowserProfile, Patch, StealthConfig};
+use stealth_oxide::{BrowserProfile, Patch, StealthConfig, TargetCoordinator};
 use tokio::time::{Duration, timeout};
 
 pub struct TestBrowser {
@@ -104,6 +104,38 @@ impl TestBrowser {
                 redirect_statuses,
             },
         })
+    }
+
+    pub async fn new_page_with_stealth_and_targets(
+        &self,
+        url: &str,
+        stealth: &StealthConfig,
+    ) -> Result<(TestPage, tokio::task::JoinHandle<()>)> {
+        let page = self.browser.new_page("about:blank").await?;
+        stealth.apply(&page).await?;
+        let coordinator = TargetCoordinator::new(stealth)?;
+        let mut attached_targets = coordinator.enable(&page).await?;
+        let target_page = page.clone();
+        let target_task = tokio::spawn(async move {
+            while let Some(event) = attached_targets.next().await {
+                if let Err(error) = coordinator.apply(&target_page, &event).await {
+                    eprintln!("target configuration failed: {error}");
+                }
+            }
+        });
+        page.goto(url).await?;
+        stealth.apply(&page).await?;
+        Ok((
+            TestPage {
+                page,
+                navigation: NavigationInfo {
+                    status: None,
+                    final_url: None,
+                    redirect_statuses: Vec::new(),
+                },
+            },
+            target_task,
+        ))
     }
 
     pub async fn new_page_with_profile_helper(

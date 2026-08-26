@@ -98,6 +98,7 @@ pub struct TargetCoordinator {
     worker_platform: Option<String>,
     hardware_concurrency: Option<SetHardwareConcurrencyOverrideParams>,
     geolocation: Option<SetGeolocationOverrideParams>,
+    gpu_source: Option<String>,
 }
 
 impl TargetCoordinator {
@@ -127,6 +128,10 @@ impl TargetCoordinator {
             PatchMode::Override(value) => Some(crate::patches::geolocation::params(value)),
             PatchMode::Native | PatchMode::Disabled => None,
         };
+        let gpu_source = match config.gpu_mode() {
+            PatchMode::Override(value) => Some(crate::patches::gpu::source(value)?),
+            PatchMode::Native | PatchMode::Disabled => None,
+        };
         Ok(Self {
             locale,
             timezone,
@@ -134,6 +139,7 @@ impl TargetCoordinator {
             worker_platform,
             hardware_concurrency,
             geolocation,
+            gpu_source,
         })
     }
 
@@ -184,6 +190,7 @@ impl TargetCoordinator {
             + usize::from(self.identity.is_some())
             + usize::from(self.hardware_concurrency.is_some())
             + usize::from(self.geolocation.is_some())
+            + usize::from(self.gpu_source.is_some())
     }
 
     /// Applies configured commands to one paused target and always resumes it.
@@ -237,6 +244,18 @@ impl TargetCoordinator {
                         Err(error) => command_error = Some(error),
                     }
                     next_id += 1;
+                }
+            }
+            if command_error.is_none() {
+                if matches!(target_type.as_str(), "worker" | "shared_worker") {
+                    if let Some(source) = &self.gpu_source {
+                        let command = RuntimeEvaluateParams::new(source.clone());
+                        match send_nested(page, &event.session_id, next_id, &command).await {
+                            Ok(()) => applied_commands += 1,
+                            Err(error) => command_error = Some(error),
+                        }
+                        next_id += 1;
+                    }
                 }
             }
             if command_error.is_none() {

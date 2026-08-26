@@ -9,8 +9,11 @@ use tokio::time::timeout;
 
 use super::common;
 use common::TestBrowser as StealthBrowser;
-use stealth_oxide::profiles::chrome_windows::chrome_windows;
-use stealth_oxide::{StealthConfig, TargetCoordinator};
+use stealth_oxide::BrowserProfile;
+use stealth_oxide::profiles::{
+    chrome_linux::chrome_linux, chrome_macos::chrome_macos, chrome_windows::chrome_windows,
+};
+use stealth_oxide::{GpuProfile, StealthConfig, TargetCoordinator};
 
 async fn loopback_page() -> Result<String> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
@@ -32,10 +35,32 @@ async fn loopback_page() -> Result<String> {
 #[tokio::test]
 #[ignore = "requires a local Chromium process with working CDP sockets"]
 async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
-    let profile = chrome_windows();
+    for (name, profile_factory, expected_platform) in [
+        (
+            "linux",
+            chrome_linux as fn() -> BrowserProfile,
+            "Linux x86_64",
+        ),
+        ("windows", chrome_windows as fn() -> BrowserProfile, "Win32"),
+        ("macos", chrome_macos as fn() -> BrowserProfile, "MacIntel"),
+    ] {
+        run_worker_consistency(name, profile_factory(), expected_platform).await?;
+    }
+    Ok(())
+}
+
+async fn run_worker_consistency(
+    profile_name: &str,
+    profile: BrowserProfile,
+    expected_platform: &str,
+) -> Result<()> {
     let expected_hardware_concurrency = profile.hardware().hardware_concurrency;
+    let gpu_profile = GpuProfile::new("Test GPU Vendor", "ANGLE (Test GPU)");
+    let expected_gpu_vendor = gpu_profile.unmasked_vendor.clone();
+    let expected_gpu_renderer = gpu_profile.unmasked_renderer.clone();
     let stealth = StealthConfig::from_profile(profile.clone())
-        .hardware_concurrency(expected_hardware_concurrency);
+        .hardware_concurrency(expected_hardware_concurrency)
+        .gpu_profile(gpu_profile);
     let target_coordinator = TargetCoordinator::new(&stealth)?;
     let page_url = loopback_page().await?;
     let browser = timeout(Duration::from_secs(20), StealthBrowser::launch(profile))
@@ -144,7 +169,7 @@ async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
         .await
         .context("timed out while applying the worker-target override")???;
 
-    println!("observed worker consistency: {observed:#}");
+    println!("observed {profile_name} worker consistency: {observed:#}");
 
     timeout(Duration::from_secs(20), browser.close())
         .await
@@ -162,8 +187,12 @@ async fn reports_page_and_dedicated_worker_consistency() -> Result<()> {
         assert_eq!(observed["worker"][property], observed["window"][property]);
     }
 
-    assert_eq!(observed["window"]["platform"], "Win32");
-    assert_eq!(observed["worker"]["platform"], "Win32");
+    assert_eq!(observed["window"]["platform"], expected_platform);
+    assert_eq!(observed["worker"]["platform"], expected_platform);
+    assert_eq!(observed["window"]["webglVendor"], expected_gpu_vendor);
+    assert_eq!(observed["window"]["webglRenderer"], expected_gpu_renderer);
+    assert_eq!(observed["worker"]["webglVendor"], expected_gpu_vendor);
+    assert_eq!(observed["worker"]["webglRenderer"], expected_gpu_renderer);
     assert_eq!(
         observed["window"]["hardwareConcurrency"].as_u64(),
         Some(u64::from(expected_hardware_concurrency))

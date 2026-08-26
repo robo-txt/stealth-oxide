@@ -1,15 +1,53 @@
+use chromiumoxide::BrowserConfig;
 use stealth_oxide::profiles::chrome_linux::chrome_linux;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 use stealth_oxide::{
     ApplyReport, BrowserProfileBuilder, ColorScheme, ConsistencyPolicy, Error, GeolocationConfig,
-    Patch, PatchMode, PatchState, PermissionOverride, PermissionSetting, PlatformProfile,
-    StealthConfig,
+    GpuPreset, Patch, PatchMode, PatchState, PermissionOverride, PermissionSetting,
+    PlatformProfile, StealthConfig,
 };
 
 #[test]
 fn selects_a_typed_linux_profile() {
     let profile = PlatformProfile::Linux.profile();
     assert_eq!(profile.name(), "chrome-linux");
+}
+
+#[test]
+fn platform_gpu_catalogs_are_scoped_to_the_selected_profile() {
+    assert_eq!(PlatformProfile::Linux.gpu_presets(), &[]);
+    assert!(PlatformProfile::Windows.supports_gpu(GpuPreset::WindowsIntelIrisXe));
+    assert!(!PlatformProfile::Windows.supports_gpu(GpuPreset::MacosAppleM1));
+    assert!(PlatformProfile::MacOS.supports_gpu(GpuPreset::MacosAppleM2));
+    assert!(!PlatformProfile::MacOS.supports_gpu(GpuPreset::WindowsNvidiaRtx3060));
+}
+
+#[test]
+fn selected_gpu_is_applied_to_the_chromium_launch_environment() {
+    let stealth = StealthConfig::for_platform(PlatformProfile::Windows)
+        .docker_gpu(GpuPreset::WindowsIntelIrisXe);
+    let runtime = stealth.docker_gpu_override().unwrap();
+    assert_eq!(runtime.angle_vendor, "Intel");
+    assert_eq!(runtime.angle_renderer, "Intel(R) Iris(R) Xe Graphics");
+
+    let config = stealth
+        .apply_docker_gpu_environment(BrowserConfig::builder().chrome_executable("/bin/true"))
+        .build()
+        .expect("test executable should produce a valid browser config");
+    let envs = config
+        .process_envs
+        .expect("GPU environment should be present");
+    assert_eq!(envs.get("LIBGL_ALWAYS_SOFTWARE"), Some(&"true".to_string()));
+    assert_eq!(
+        envs.get("MESA_LOADER_DRIVER_OVERRIDE"),
+        Some(&"llvmpipe".to_string())
+    );
+    assert_eq!(envs.get("ANGLE_GL_VENDOR"), Some(&"Intel".to_string()));
+    assert_eq!(
+        envs.get("ANGLE_GL_RENDERER"),
+        Some(&"Intel(R) Iris(R) Xe Graphics".to_string())
+    );
+    assert!(!envs.contains_key("ANGLE_GL_VERSION"));
 }
 
 #[test]
@@ -25,6 +63,7 @@ fn none_disables_every_patch() {
         Patch::HardwareConcurrency,
         Patch::Permissions,
         Patch::Geolocation,
+        Patch::Gpu,
     ] {
         assert_eq!(config.patch_state(patch), PatchState::Disabled);
     }
@@ -82,6 +121,7 @@ fn patch_plan_order_is_deterministic() {
             Patch::Touch,
             Patch::Geolocation,
             Patch::Permissions,
+            Patch::Gpu,
         ]
     );
 }
