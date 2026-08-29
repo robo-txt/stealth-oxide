@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>stealth-oxide CPU GPU stability probe</title>
+<pre id="result">collecting</pre>
+<script>
+(() => {
+  const inspect = (name) => {
+    const canvas = document.createElement('canvas')
+    const result = { name, available: false }
+    try {
+      const context = canvas.getContext(name)
+      if (!context) return result
+      const debug = context.getExtension('WEBGL_debug_renderer_info')
+      result.available = true
+      result.contextLost = context.isContextLost()
+      result.vendor = debug ? context.getParameter(debug.UNMASKED_VENDOR_WEBGL) : null
+      result.renderer = debug ? context.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null
+      result.version = context.getParameter(context.VERSION)
+      result.shadingLanguageVersion = context.getParameter(context.SHADING_LANGUAGE_VERSION)
+      result.extensionCount = (context.getSupportedExtensions() || []).length
+      result.maxTextureSize = context.getParameter(context.MAX_TEXTURE_SIZE)
+      result.maxViewportDims = Array.from(context.getParameter(context.MAX_VIEWPORT_DIMS) || [])
+      result.maxFragmentUniformVectors = context.getParameter(context.MAX_FRAGMENT_UNIFORM_VECTORS)
+      result.maxVertexUniformVectors = context.getParameter(context.MAX_VERTEX_UNIFORM_VECTORS)
+      result.contextLostAfterReadback = context.isContextLost()
+      return result
+    } catch (error) {
+      result.error = String(error)
+      return result
+    }
+  }
+
+  document.getElementById('result').textContent = JSON.stringify({
+    userAgent: navigator.userAgent,
+    webdriver: navigator.webdriver,
+    screen: {
+      width: screen.width,
+      height: screen.height,
+      availWidth: screen.availWidth,
+      availHeight: screen.availHeight,
+    },
+    webgl: [inspect('webgl'), inspect('webgl2')],
+  }, null, 2)
+})()
+</script>
