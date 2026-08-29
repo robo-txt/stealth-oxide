@@ -67,6 +67,38 @@ the package helps applications collect and compare:
 These are environment snapshots for authorized testing, not classifications or
 guarantees about a third-party service.
 
+### Docker profile captures
+
+The repository also includes full-page CreepJS captures from the Docker GPU
+profile example. Each run uses Xvfb and Mesa/LLVMpipe for CPU rendering; it
+does not create or pass through a physical GPU. The Rust profile selection
+passes the corresponding ANGLE vendor and renderer into Chromium before launch:
+
+<table>
+  <tr>
+    <th>Linux · AMD Radeon HD 3200</th>
+    <th>Windows · Intel Iris Xe</th>
+    <th>macOS · Apple M1</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="docs/images/creepjs-docker-linux.png">
+        <img src="docs/images/creepjs-docker-linux.png" alt="Linux Docker CreepJS profile capture" width="260">
+      </a>
+    </td>
+    <td>
+      <a href="docs/images/creepjs-docker-windows.png">
+        <img src="docs/images/creepjs-docker-windows.png" alt="Windows Docker CreepJS profile capture" width="260">
+      </a>
+    </td>
+    <td>
+      <a href="docs/images/creepjs-docker-macos.png">
+        <img src="docs/images/creepjs-docker-macos.png" alt="macOS Docker CreepJS profile capture" width="260">
+      </a>
+    </td>
+  </tr>
+</table>
+
 ## Installation
 
 ```toml
@@ -176,6 +208,50 @@ cargo run --example site_diagnostic -- https://example.com/
 The GPU preset must belong to the selected platform. Omitting it preserves the
 existing host/default GPU behavior; setting it enables the Mesa launch path in
 the diagnostic job.
+
+### Running the Docker profile example
+
+Build the example image from the repository root:
+
+```bash
+docker build -f examples/Dockerfile.docker_gpu_profiles \
+  -t stealth-oxide/docker-gpu-profiles:local .
+```
+
+Run all three profile captures. The `/tmp` mount keeps the PNGs on the host:
+
+```bash
+docker run --rm --network host --shm-size=2g -v /tmp:/tmp \
+  stealth-oxide/docker-gpu-profiles:local
+```
+
+The default Rust mapping is:
+
+| Platform profile | GPU identity passed before Chromium launch | Output |
+| --- | --- | --- |
+| Linux | AMD Radeon HD 3200 | `/tmp/stealth-oxide-creepjs-docker/creepjs-linux.png` |
+| Windows | Intel Iris Xe | `/tmp/stealth-oxide-creepjs-docker/creepjs-windows.png` |
+| macOS | Apple M1 | `/tmp/stealth-oxide-creepjs-docker/creepjs-macos.png` |
+
+To run only one profile, pass `linux`, `windows`, or `macos`:
+
+```bash
+docker run --rm --network host --shm-size=2g -v /tmp:/tmp \
+  stealth-oxide/docker-gpu-profiles:local windows
+```
+
+To change the output directory, set `CREEPJS_SCREENSHOT_DIR` to a path inside
+the mounted volume:
+
+```bash
+docker run --rm --network host --shm-size=2g -v /tmp:/tmp \
+  -e CREEPJS_SCREENSHOT_DIR=/tmp/my-creepjs-runs \
+  stealth-oxide/docker-gpu-profiles:local
+```
+
+This is an experimental identity diagnostic. The renderer strings are selected
+through ANGLE launch settings, while actual rendering remains CPU-backed
+LLVMpipe and the browser runtime remains Linux.
 
 ## Profiles and patches
 
