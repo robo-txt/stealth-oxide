@@ -1,0 +1,20 @@
+# Build the example against the same Debian family as the runtime image, then
+# run it in the existing Chromium/Mesa research image.
+FROM rust:1.88-bookworm AS builder
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY README.md ./README.md
+COPY src ./src
+COPY examples ./examples
+
+RUN cargo build --release --locked --example docker_gpu_profiles
+
+FROM stealth-oxide/xvfb-research:latest
+
+COPY --from=builder /build/target/release/examples/docker_gpu_profiles \
+    /usr/local/bin/docker-gpu-profiles
+COPY examples/run_docker_gpu_profiles.sh /usr/local/bin/run-docker-gpu-profiles
+RUN chmod +x /usr/local/bin/run-docker-gpu-profiles
+
+ENTRYPOINT ["/usr/local/bin/run-docker-gpu-profiles"]
