@@ -42,7 +42,7 @@ pub async fn apply(page: &Page, profile: &ScreenConfig) -> Result<()> {
             .work_area_insets(work_area)
             .device_pixel_ratio(profile.device_scale_factor)
             .color_depth(24)
-            .is_internal(true)
+            .internal(true)
             .build(),
     )
     .await
@@ -131,7 +131,7 @@ impl UpdateScreenParamsBuilder {
         self
     }
 
-    fn is_internal(mut self, is_internal: impl Into<bool>) -> Self {
+    fn internal(mut self, is_internal: impl Into<bool>) -> Self {
         self.is_internal = Some(is_internal.into());
         self
     }

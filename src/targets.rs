@@ -246,16 +246,15 @@ impl TargetCoordinator {
                     next_id += 1;
                 }
             }
-            if command_error.is_none() {
-                if matches!(target_type.as_str(), "worker" | "shared_worker") {
-                    if let Some(source) = &self.gpu_source {
-                        let command = RuntimeEvaluateParams::new(source.clone());
-                        match send_nested(page, &event.session_id, next_id, &command).await {
-                            Ok(()) => applied_commands += 1,
-                            Err(error) => command_error = Some(error),
-                        }
-                        next_id += 1;
+            if command_error.is_none() && matches!(target_type.as_str(), "worker" | "shared_worker")
+            {
+                if let Some(source) = &self.gpu_source {
+                    let command = RuntimeEvaluateParams::new(source.clone());
+                    match send_nested(page, &event.session_id, next_id, &command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
                     }
+                    next_id += 1;
                 }
             }
             if command_error.is_none() {

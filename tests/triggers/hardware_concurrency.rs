@@ -101,12 +101,11 @@ async fn profile_helper_applies_hardware_before_the_first_document_script() -> R
     .await
     .context("timed out while launching Chromium")??;
     let config = StealthConfig::from_profile(profile).hardware_concurrency(expected);
-    let url = format!(
-        "data:text/html,<script>document.title=String(navigator.hardwareConcurrency)</script>"
-    );
+    let url =
+        "data:text/html,<script>document.title=String(navigator.hardwareConcurrency)</script>";
     let page = timeout(
         Duration::from_secs(20),
-        browser.new_page_with_profile_helper(&url, &config),
+        browser.new_page_with_profile_helper(url, &config),
     )
     .await
     .context("timed out while creating the profile-helper page")??;

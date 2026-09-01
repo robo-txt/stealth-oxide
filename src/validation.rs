@@ -38,10 +38,10 @@ pub(crate) fn validate_config(config: &StealthConfig) -> Vec<ValidationIssue> {
             issues.push(ValidationIssue::TouchContradiction);
         }
     }
-    if let PatchMode::Override(hardware_concurrency) = config.hardware_concurrency_mode()
-        && *hardware_concurrency == 0
-    {
-        issues.push(ValidationIssue::InvalidHardwareConcurrency);
+    if let PatchMode::Override(hardware_concurrency) = config.hardware_concurrency_mode() {
+        if *hardware_concurrency == 0 {
+            issues.push(ValidationIssue::InvalidHardwareConcurrency);
+        }
     }
     if let PatchMode::Override(permissions) = config.permissions_mode() {
         validate_permissions(permissions, &mut issues);
@@ -95,42 +95,42 @@ fn validate_geolocation(geolocation: &GeolocationConfig, issues: &mut Vec<Valida
         });
         return;
     }
-    if let Some(latitude) = geolocation.latitude
-        && (!latitude.is_finite() || !(-90.0..=90.0).contains(&latitude))
-    {
-        issues.push(ValidationIssue::InvalidGeolocation { field: "latitude" });
+    if let Some(latitude) = geolocation.latitude {
+        if !latitude.is_finite() || !(-90.0..=90.0).contains(&latitude) {
+            issues.push(ValidationIssue::InvalidGeolocation { field: "latitude" });
+        }
     }
-    if let Some(longitude) = geolocation.longitude
-        && (!longitude.is_finite() || !(-180.0..=180.0).contains(&longitude))
-    {
-        issues.push(ValidationIssue::InvalidGeolocation { field: "longitude" });
+    if let Some(longitude) = geolocation.longitude {
+        if !longitude.is_finite() || !(-180.0..=180.0).contains(&longitude) {
+            issues.push(ValidationIssue::InvalidGeolocation { field: "longitude" });
+        }
     }
-    if let Some(accuracy) = geolocation.accuracy
-        && (!accuracy.is_finite() || accuracy < 0.0)
-    {
-        issues.push(ValidationIssue::InvalidGeolocation { field: "accuracy" });
+    if let Some(accuracy) = geolocation.accuracy {
+        if !accuracy.is_finite() || accuracy < 0.0 {
+            issues.push(ValidationIssue::InvalidGeolocation { field: "accuracy" });
+        }
     }
-    if let Some(altitude) = geolocation.altitude
-        && !altitude.is_finite()
-    {
-        issues.push(ValidationIssue::InvalidGeolocation { field: "altitude" });
+    if let Some(altitude) = geolocation.altitude {
+        if !altitude.is_finite() {
+            issues.push(ValidationIssue::InvalidGeolocation { field: "altitude" });
+        }
     }
-    if let Some(altitude_accuracy) = geolocation.altitude_accuracy
-        && (!altitude_accuracy.is_finite() || altitude_accuracy < 0.0)
-    {
-        issues.push(ValidationIssue::InvalidGeolocation {
-            field: "altitude accuracy",
-        });
+    if let Some(altitude_accuracy) = geolocation.altitude_accuracy {
+        if !altitude_accuracy.is_finite() || altitude_accuracy < 0.0 {
+            issues.push(ValidationIssue::InvalidGeolocation {
+                field: "altitude accuracy",
+            });
+        }
     }
-    if let Some(heading) = geolocation.heading
-        && (!heading.is_finite() || !(0.0..360.0).contains(&heading))
-    {
-        issues.push(ValidationIssue::InvalidGeolocation { field: "heading" });
+    if let Some(heading) = geolocation.heading {
+        if !heading.is_finite() || !(0.0..360.0).contains(&heading) {
+            issues.push(ValidationIssue::InvalidGeolocation { field: "heading" });
+        }
     }
-    if let Some(speed) = geolocation.speed
-        && (!speed.is_finite() || speed < 0.0)
-    {
-        issues.push(ValidationIssue::InvalidGeolocation { field: "speed" });
+    if let Some(speed) = geolocation.speed {
+        if !speed.is_finite() || speed < 0.0 {
+            issues.push(ValidationIssue::InvalidGeolocation { field: "speed" });
+        }
     }
 }
 
