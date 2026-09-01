@@ -61,6 +61,336 @@ pub(crate) fn us_eastern_locale() -> LocaleProfile {
     }
 }
 
+/// Hardware characteristics that can be modeled without changing the site realm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HardwareProfile {
+    /// Logical processor count exposed through Chromium's native override.
+    pub hardware_concurrency: u32,
+}
+
+/// CPU-rendered Docker GPU identities commonly seen on Windows and macOS.
+///
+/// These presets describe the identity exposed by ANGLE. They do not provide
+/// hardware acceleration; the runtime remains Mesa/LLVMpipe when the preset's
+/// launch environment is applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GpuPreset {
+    /// Windows laptop Intel UHD 620.
+    WindowsIntelUhd620,
+    /// Windows laptop Intel Iris Xe.
+    WindowsIntelIrisXe,
+    /// Windows desktop NVIDIA GeForce GTX 1650.
+    WindowsNvidiaGtx1650,
+    /// Windows desktop NVIDIA GeForce RTX 3060.
+    WindowsNvidiaRtx3060,
+    /// Windows desktop AMD Radeon RX 580.
+    WindowsAmdRadeonRx580,
+    /// macOS Intel Iris Plus 645.
+    MacosIntelIrisPlus645,
+    /// macOS AMD Radeon Pro 5500M.
+    MacosAmdRadeonPro5500m,
+    /// Apple M1 integrated GPU.
+    MacosAppleM1,
+    /// Apple M2 integrated GPU.
+    MacosAppleM2,
+}
+
+impl GpuPreset {
+    /// Returns the stable catalog identifier.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::WindowsIntelUhd620 => "windows-intel-uhd-620",
+            Self::WindowsIntelIrisXe => "windows-intel-iris-xe",
+            Self::WindowsNvidiaGtx1650 => "windows-nvidia-gtx-1650",
+            Self::WindowsNvidiaRtx3060 => "windows-nvidia-rtx-3060",
+            Self::WindowsAmdRadeonRx580 => "windows-amd-radeon-rx-580",
+            Self::MacosIntelIrisPlus645 => "macos-intel-iris-plus-645",
+            Self::MacosAmdRadeonPro5500m => "macos-amd-radeon-pro-5500m",
+            Self::MacosAppleM1 => "macos-apple-m1",
+            Self::MacosAppleM2 => "macos-apple-m2",
+        }
+    }
+
+    /// Returns the ANGLE/Mesa process settings for this identity.
+    pub const fn runtime(self) -> GpuRuntimeProfile {
+        match self {
+            Self::WindowsIntelUhd620 => GpuRuntimeProfile {
+                angle_vendor: "Intel",
+                angle_renderer: "Intel(R) UHD Graphics 620",
+            },
+            Self::WindowsIntelIrisXe => GpuRuntimeProfile {
+                angle_vendor: "Intel",
+                angle_renderer: "Intel(R) Iris(R) Xe Graphics",
+            },
+            Self::WindowsNvidiaGtx1650 => GpuRuntimeProfile {
+                angle_vendor: "NVIDIA Corporation",
+                angle_renderer: "NVIDIA GeForce GTX 1650",
+            },
+            Self::WindowsNvidiaRtx3060 => GpuRuntimeProfile {
+                angle_vendor: "NVIDIA Corporation",
+                angle_renderer: "NVIDIA GeForce RTX 3060",
+            },
+            Self::WindowsAmdRadeonRx580 => GpuRuntimeProfile {
+                angle_vendor: "AMD",
+                angle_renderer: "AMD Radeon RX 580",
+            },
+            Self::MacosIntelIrisPlus645 => GpuRuntimeProfile {
+                angle_vendor: "Intel",
+                angle_renderer: "Intel Iris Plus Graphics 645",
+            },
+            Self::MacosAmdRadeonPro5500m => GpuRuntimeProfile {
+                angle_vendor: "AMD",
+                angle_renderer: "AMD Radeon Pro 5500M",
+            },
+            Self::MacosAppleM1 => GpuRuntimeProfile {
+                angle_vendor: "Apple Inc.",
+                angle_renderer: "Apple M1",
+            },
+            Self::MacosAppleM2 => GpuRuntimeProfile {
+                angle_vendor: "Apple Inc.",
+                angle_renderer: "Apple M2",
+            },
+        }
+    }
+
+    /// Returns the JavaScript-visible GPU identity associated with this preset.
+    ///
+    /// This is an opt-in JavaScript patch and is separate from the native
+    /// Docker environment returned by [`Self::runtime`].
+    pub fn webgl_profile(self) -> GpuProfile {
+        let runtime = self.runtime();
+        GpuProfile::new(runtime.angle_vendor, runtime.angle_renderer)
+    }
+}
+
+/// Native process identity settings for CPU-rendered Docker Chromium.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GpuRuntimeProfile {
+    /// Value supplied to ANGLE_GL_VENDOR.
+    pub angle_vendor: &'static str,
+    /// Value supplied to ANGLE_GL_RENDERER.
+    pub angle_renderer: &'static str,
+}
+
+impl GpuRuntimeProfile {
+    /// Returns environment variables for a Mesa/LLVMpipe Docker process.
+    ///
+    /// ANGLE_GL_VERSION is intentionally omitted so Chromium keeps its native
+    /// version and capability surface.
+    pub fn docker_process_envs(self) -> [(String, String); 4] {
+        [
+            ("LIBGL_ALWAYS_SOFTWARE".into(), "true".into()),
+            ("MESA_LOADER_DRIVER_OVERRIDE".into(), "llvmpipe".into()),
+            ("ANGLE_GL_VENDOR".into(), self.angle_vendor.into()),
+            ("ANGLE_GL_RENDERER".into(), self.angle_renderer.into()),
+        ]
+    }
+}
+
+/// Permission setting understood by Chromium's native Browser domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionSetting {
+    /// Allow the permission without prompting.
+    Granted,
+    /// Deny the permission without prompting.
+    Denied,
+    /// Restore the browser's prompt/default behavior.
+    Prompt,
+}
+
+/// Origin-scoped native permission override.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionOverride {
+    /// Chromium permission name, such as `geolocation` or `notifications`.
+    pub name: String,
+    /// Native permission setting.
+    pub setting: PermissionSetting,
+    /// Embedding origin. `None` applies to all origins in the browser context.
+    pub origin: Option<String>,
+    /// Optional embedded origin for embedded-origin policy decisions.
+    pub embedded_origin: Option<String>,
+}
+
+impl PermissionOverride {
+    /// Creates an origin-scoped permission override.
+    pub fn for_origin(
+        name: impl Into<String>,
+        setting: PermissionSetting,
+        origin: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            setting,
+            origin: Some(origin.into()),
+            embedded_origin: None,
+        }
+    }
+
+    /// Creates a browser-context-wide permission override.
+    pub fn all_origins(name: impl Into<String>, setting: PermissionSetting) -> Self {
+        Self {
+            name: name.into(),
+            setting,
+            origin: None,
+            embedded_origin: None,
+        }
+    }
+
+    /// Adds an embedded-origin restriction to the override.
+    pub fn embedded_origin(mut self, origin: impl Into<String>) -> Self {
+        self.embedded_origin = Some(origin.into());
+        self
+    }
+}
+
+/// Native geolocation position or unavailable-state override.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeolocationConfig {
+    /// Mock latitude, or `None` to emulate an unavailable position.
+    pub latitude: Option<f64>,
+    /// Mock longitude, or `None` to emulate an unavailable position.
+    pub longitude: Option<f64>,
+    /// Mock accuracy in meters, or `None` to emulate an unavailable position.
+    pub accuracy: Option<f64>,
+    /// Optional mock altitude in meters.
+    pub altitude: Option<f64>,
+    /// Optional mock altitude accuracy in meters.
+    pub altitude_accuracy: Option<f64>,
+    /// Optional mock heading in degrees.
+    pub heading: Option<f64>,
+    /// Optional mock speed in meters per second.
+    pub speed: Option<f64>,
+}
+
+impl GeolocationConfig {
+    /// Creates a complete native position override.
+    pub const fn position(latitude: f64, longitude: f64, accuracy: f64) -> Self {
+        Self {
+            latitude: Some(latitude),
+            longitude: Some(longitude),
+            accuracy: Some(accuracy),
+            altitude: None,
+            altitude_accuracy: None,
+            heading: None,
+            speed: None,
+        }
+    }
+
+    /// Creates the native position-unavailable override.
+    pub const fn unavailable() -> Self {
+        Self {
+            latitude: None,
+            longitude: None,
+            accuracy: None,
+            altitude: None,
+            altitude_accuracy: None,
+            heading: None,
+            speed: None,
+        }
+    }
+
+    /// Adds optional altitude data.
+    pub const fn altitude(mut self, value: f64) -> Self {
+        self.altitude = Some(value);
+        self
+    }
+
+    /// Adds optional altitude accuracy data.
+    pub const fn altitude_accuracy(mut self, value: f64) -> Self {
+        self.altitude_accuracy = Some(value);
+        self
+    }
+
+    /// Adds optional heading data.
+    pub const fn heading(mut self, value: f64) -> Self {
+        self.heading = Some(value);
+        self
+    }
+
+    /// Adds optional speed data.
+    pub const fn speed(mut self, value: f64) -> Self {
+        self.speed = Some(value);
+        self
+    }
+}
+
+impl HardwareProfile {
+    /// Creates a hardware profile with the supplied logical processor count.
+    pub const fn new(hardware_concurrency: u32) -> Self {
+        Self {
+            hardware_concurrency,
+        }
+    }
+}
+
+/// JavaScript-visible WebGL identity for an opt-in GPU surface override.
+///
+/// This experimental profile changes WebGL string queries while leaving
+/// Chromium's native renderer in place. Numeric limits, extensions, shader
+/// precision, and pixel output are intentionally not represented yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct GpuProfile {
+    /// Value returned by `gl.getParameter(gl.VENDOR)`.
+    pub vendor: String,
+    /// Value returned by `gl.getParameter(gl.RENDERER)`.
+    pub renderer: String,
+    /// Value returned for `UNMASKED_VENDOR_WEBGL`.
+    pub unmasked_vendor: String,
+    /// Value returned for `UNMASKED_RENDERER_WEBGL`.
+    pub unmasked_renderer: String,
+    /// Value returned by `gl.getParameter(gl.VERSION)`.
+    pub version: String,
+    /// Value returned by `gl.getParameter(gl.SHADING_LANGUAGE_VERSION)`.
+    pub shading_language_version: String,
+}
+
+impl GpuProfile {
+    /// Creates a profile with Chromium's standard masked WebGL strings.
+    pub fn new(unmasked_vendor: impl Into<String>, unmasked_renderer: impl Into<String>) -> Self {
+        Self {
+            vendor: "WebKit".to_string(),
+            renderer: "WebKit WebGL".to_string(),
+            unmasked_vendor: unmasked_vendor.into(),
+            unmasked_renderer: unmasked_renderer.into(),
+            version: "WebGL 1.0 (OpenGL ES 2.0 Chromium)".to_string(),
+            shading_language_version: "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)"
+                .to_string(),
+        }
+    }
+
+    /// Returns the AMD Renoir/Mesa identity observed on the development host.
+    pub fn mesa_amd_renoir() -> Self {
+        Self::new(
+            "Google Inc. (AMD)",
+            "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+        )
+    }
+
+    /// Replaces the masked WebGL vendor and renderer strings.
+    pub fn masked_strings(
+        mut self,
+        vendor: impl Into<String>,
+        renderer: impl Into<String>,
+    ) -> Self {
+        self.vendor = vendor.into();
+        self.renderer = renderer.into();
+        self
+    }
+
+    /// Replaces the WebGL and GLSL version strings.
+    pub fn version_strings(
+        mut self,
+        version: impl Into<String>,
+        shading_language_version: impl Into<String>,
+    ) -> Self {
+        self.version = version.into();
+        self.shading_language_version = shading_language_version.into();
+        self
+    }
+}
+
 /// Coherent inputs consumed by the supported CDP patch groups.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserProfile {
@@ -74,6 +404,8 @@ pub struct BrowserProfile {
     pub(crate) device_environment: DeviceEnvironmentProfile,
     /// Locale and timezone values.
     pub(crate) locale: LocaleProfile,
+    /// Hardware characteristics used by opt-in native overrides.
+    pub(crate) hardware: HardwareProfile,
     /// Browser version represented by this profile, when known.
     pub(crate) version: Option<ProfileVersion>,
 }
@@ -102,6 +434,11 @@ impl BrowserProfile {
     /// Locale and timezone defaults.
     pub fn locale(&self) -> &LocaleProfile {
         &self.locale
+    }
+
+    /// Hardware characteristics used by opt-in native overrides.
+    pub const fn hardware(&self) -> HardwareProfile {
+        self.hardware
     }
 
     /// Browser version represented by this profile.
@@ -136,6 +473,16 @@ impl ProfileVersion {
     /// Version metadata used by all built-in profiles.
     pub fn built_in() -> Self {
         Self::new(BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION)
+    }
+
+    /// Parses a Chrome, Chromium, or HeadlessChrome product string.
+    pub fn from_product(product: &str) -> Option<Self> {
+        let (name, version) = product.trim().split_once('/')?;
+        if !matches!(name, "Chrome" | "HeadlessChrome" | "Chromium") {
+            return None;
+        }
+        let major = version.split('.').next()?.parse().ok()?;
+        Some(Self::new(major, version))
     }
 }
 
@@ -211,6 +558,10 @@ pub struct ScreenConfig {
     pub width: u32,
     /// Screen height in CSS pixels.
     pub height: u32,
+    /// Available screen width in CSS pixels.
+    pub available_width: u32,
+    /// Available screen height in CSS pixels.
+    pub available_height: u32,
     /// Ratio between device and CSS pixels.
     pub device_scale_factor: f64,
 }
@@ -221,6 +572,8 @@ impl ScreenConfig {
         Self {
             width,
             height,
+            available_width: width,
+            available_height: height,
             device_scale_factor,
         }
     }
@@ -229,6 +582,13 @@ impl ScreenConfig {
     pub const fn dimensions(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// Replaces the available work-area dimensions.
+    pub const fn available_dimensions(mut self, width: u32, height: u32) -> Self {
+        self.available_width = width;
+        self.available_height = height;
         self
     }
 
@@ -244,6 +604,8 @@ impl From<&ScreenProfile> for ScreenConfig {
         Self {
             width: profile.width,
             height: profile.height,
+            available_width: profile.available_width,
+            available_height: profile.available_height,
             device_scale_factor: profile.device_scale_factor,
         }
     }
@@ -519,6 +881,32 @@ impl BrowserProfileBuilder {
         self
     }
 
+    /// Updates Chrome version tokens in the UA and Client Hints metadata.
+    ///
+    /// This is useful when a typed platform profile is used with a real
+    /// Chromium binary whose version differs from the profile's default.
+    /// Operating-system identity and host-native surfaces remain unchanged.
+    pub fn chrome_version(mut self, version: ProfileVersion) -> Self {
+        replace_user_agent_chrome_version(
+            &mut self.profile.navigator.user_agent,
+            &version.chrome_version,
+        );
+        if let Some(client_hints) = &mut self.profile.navigator.client_hints {
+            for brand in &mut client_hints.brands {
+                if matches!(brand.brand.as_str(), "Chromium" | "Google Chrome") {
+                    brand.version = version.chrome_major.to_string();
+                }
+            }
+            for brand in &mut client_hints.full_version_list {
+                if matches!(brand.brand.as_str(), "Chromium" | "Google Chrome") {
+                    brand.version = version.chrome_version.clone();
+                }
+            }
+        }
+        self.profile.version = Some(version);
+        self
+    }
+
     /// Replaces the ordered navigator language list.
     pub fn languages<I, S>(mut self, languages: I) -> Self
     where
@@ -544,6 +932,12 @@ impl BrowserProfileBuilder {
     /// Sets the IANA timezone identifier.
     pub fn timezone(mut self, timezone: impl Into<String>) -> Self {
         self.profile.locale.timezone = timezone.into();
+        self
+    }
+
+    /// Sets the logical processor count for an opt-in native override.
+    pub fn hardware_concurrency(mut self, value: u32) -> Self {
+        self.profile.hardware.hardware_concurrency = value;
         self
     }
 
@@ -609,4 +1003,16 @@ impl BrowserProfileBuilder {
         crate::validation::validate_profile(&self.profile)?;
         Ok(self.profile)
     }
+}
+
+fn replace_user_agent_chrome_version(user_agent: &mut String, version: &str) {
+    let Some(marker_start) = user_agent.find("Chrome/") else {
+        return;
+    };
+    let version_start = marker_start + "Chrome/".len();
+    let version_end = user_agent[version_start..]
+        .find(char::is_whitespace)
+        .map(|offset| version_start + offset)
+        .unwrap_or(user_agent.len());
+    user_agent.replace_range(version_start..version_end, version);
 }

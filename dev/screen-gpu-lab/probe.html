@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>stealth-oxide screen and GPU runtime probe</title>
+<pre id="result">collecting</pre>
+<script>
+(() => {
+  const result = document.getElementById('result')
+  const getWebgl = (contextName) => {
+    try {
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext(contextName)
+      if (!context) return { available: false }
+      const debug = context.getExtension('WEBGL_debug_renderer_info')
+      return {
+        available: true,
+        vendor: debug ? context.getParameter(debug.UNMASKED_VENDOR_WEBGL) : null,
+        renderer: debug ? context.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null,
+        version: context.getParameter(context.VERSION),
+        shadingLanguageVersion: context.getParameter(context.SHADING_LANGUAGE_VERSION),
+      }
+    } catch (error) {
+      return { available: false, error: String(error) }
+    }
+  }
+
+  const payload = {
+    userAgent: navigator.userAgent,
+    webdriver: navigator.webdriver,
+    screen: {
+      width: screen.width,
+      height: screen.height,
+      availWidth: screen.availWidth,
+      availHeight: screen.availHeight,
+      colorDepth: screen.colorDepth,
+      pixelDepth: screen.pixelDepth,
+    },
+    viewport: {
+      innerWidth,
+      innerHeight,
+      outerWidth,
+      outerHeight,
+      devicePixelRatio,
+      visualViewport: visualViewport && {
+        width: visualViewport.width,
+        height: visualViewport.height,
+      },
+    },
+    features: {
+      contentIndex: 'ContentIndex' in window,
+      contactsManager: 'ContactsManager' in window,
+      downlinkMax: 'downlinkMax' in (navigator.connection || {}),
+      webShare: 'share' in navigator && 'canShare' in navigator,
+    },
+    webgl: {
+      webgl: getWebgl('webgl'),
+      webgl2: getWebgl('webgl2'),
+    },
+  }
+  result.textContent = JSON.stringify(payload, null, 2)
+})()
+</script>

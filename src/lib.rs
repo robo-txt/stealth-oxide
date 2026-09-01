@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+/// Native desktop capability expectations and observations.
+pub mod capabilities;
 /// Browser runtime and profile-version compatibility inspection.
 pub mod compatibility;
 mod config;
@@ -28,8 +30,12 @@ pub mod targets;
 pub mod topology;
 mod validation;
 
-use chromiumoxide::Page;
+use chromiumoxide::{Browser, Page};
 
+pub use capabilities::{
+    CapabilityExpectation, NativeCapability, NativeCapabilityExpectations,
+    NativeCapabilityMismatch, NativeCapabilityObservation,
+};
 pub use compatibility::{CompatibilityStatus, compare_browser_versions};
 pub use config::{
     ApplyReport, ConsistencyPolicy, Patch, PatchMode, PatchPlan, PatchState, PlatformProfile,
@@ -48,8 +54,9 @@ pub use network::{
 };
 pub use profiles::{
     BUILT_IN_CHROME_MAJOR, BUILT_IN_CHROME_VERSION, BrowserProfile, BrowserProfileBuilder,
-    ColorGamut, ColorScheme, ForcedColors, IdentityConfig, MediaFeaturesConfig, ProfileVersion,
-    ReducedMotion, ScreenConfig, TouchConfig,
+    ColorGamut, ColorScheme, ForcedColors, GeolocationConfig, GpuPreset, GpuProfile,
+    GpuRuntimeProfile, HardwareProfile, IdentityConfig, MediaFeaturesConfig, PermissionOverride,
+    PermissionSetting, ProfileVersion, ReducedMotion, ScreenConfig, TouchConfig,
 };
 pub use retry::{
     NavigationMethod, NavigationRetryPolicy, NoRetryReason, ResponseDisposition, RetryDecision,
@@ -64,6 +71,27 @@ pub use topology::{Coverage, ResourceScope, classify_resource, sanitize_initiato
 pub use validation::validate_profile;
 
 impl StealthConfig {
+    /// Creates a destination page and applies the profile before its document
+    /// scripts run.
+    ///
+    /// The initialization target is kept internal: callers receive only the
+    /// configured destination page. Browser-context permissions are applied
+    /// first, page-scoped emulation is applied before navigation, and
+    /// target-scoped state is reapplied after navigation for Chromium paths
+    /// that reset it during a cross-origin load.
+    ///
+    /// This helper uses the browser's default context, matching
+    /// [`Browser::new_page`]. Use [`Self::apply_browser`] explicitly when a
+    /// caller needs to manage a separate Chromium browser context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if validation, page creation, navigation, or profile
+    /// application fails.
+    pub async fn new_page(&self, browser: &Browser, url: &str) -> Result<Page> {
+        targets::new_page_with_profile(browser, self, url).await
+    }
+
     /// Validates and applies this configuration to an existing Chromiumoxide page.
     ///
     /// Call this while the page is still `about:blank`, before site scripts run.
@@ -88,6 +116,11 @@ impl StealthConfig {
         if self.policy() == ConsistencyPolicy::Warn {
             report.warnings = issues;
         }
+        if matches!(self.permissions_mode(), PatchMode::Override(_)) {
+            return Err(Error::BrowserRequired {
+                patch: Patch::Permissions,
+            });
+        }
 
         apply_mode(self.locale_mode(), Patch::Locale, &mut report, |value| {
             patches::locale::apply(page, value)
@@ -107,6 +140,17 @@ impl StealthConfig {
             |value| patches::identity::apply(page, value),
         )
         .await?;
+        apply_mode(self.gpu_mode(), Patch::Gpu, &mut report, |value| {
+            patches::gpu::apply(page, value)
+        })
+        .await?;
+        apply_mode(
+            self.hardware_concurrency_mode(),
+            Patch::HardwareConcurrency,
+            &mut report,
+            |value| patches::hardware::apply(page, *value),
+        )
+        .await?;
         apply_mode(self.screen_mode(), Patch::Screen, &mut report, |value| {
             patches::screen::apply(page, value)
         })
@@ -122,7 +166,48 @@ impl StealthConfig {
             patches::touch::apply(page, value)
         })
         .await?;
+        apply_mode(
+            self.geolocation_mode(),
+            Patch::Geolocation,
+            &mut report,
+            |value| patches::geolocation::apply(page, value),
+        )
+        .await?;
 
+        Ok(report)
+    }
+
+    /// Validates and applies this configuration's browser-context permission
+    /// overrides through Chromium's native Browser domain.
+    ///
+    /// Permission commands must be sent through [`Browser`], while page
+    /// emulation commands are applied with [`Self::apply`]. Call this before
+    /// navigating the page whose origin is covered by the permission policy.
+    pub async fn apply_browser(&self, browser: &Browser) -> Result<ApplyReport> {
+        let plan = self.plan();
+        let issues = plan.issues().to_vec();
+        if self.policy() == ConsistencyPolicy::Strict && !issues.is_empty() {
+            return Err(Error::Validation {
+                issues: issues.into(),
+            });
+        }
+
+        let mut report = ApplyReport::default();
+        if self.policy() == ConsistencyPolicy::Warn {
+            report.warnings = issues;
+        }
+        apply_mode(
+            self.permissions_mode(),
+            Patch::Permissions,
+            &mut report,
+            |permissions| async move {
+                for permission in permissions {
+                    patches::permissions::apply(browser, permission).await?;
+                }
+                Ok(())
+            },
+        )
+        .await?;
         Ok(report)
     }
 }

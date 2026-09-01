@@ -1,14 +1,53 @@
+use chromiumoxide::BrowserConfig;
 use stealth_oxide::profiles::chrome_linux::chrome_linux;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
 use stealth_oxide::{
-    ApplyReport, BrowserProfileBuilder, ColorScheme, ConsistencyPolicy, Error, Patch, PatchMode,
-    PatchState, PlatformProfile, StealthConfig,
+    ApplyReport, BrowserProfileBuilder, ColorScheme, ConsistencyPolicy, Error, GeolocationConfig,
+    GpuPreset, Patch, PatchMode, PatchState, PermissionOverride, PermissionSetting,
+    PlatformProfile, StealthConfig,
 };
 
 #[test]
 fn selects_a_typed_linux_profile() {
     let profile = PlatformProfile::Linux.profile();
     assert_eq!(profile.name(), "chrome-linux");
+}
+
+#[test]
+fn platform_gpu_catalogs_are_scoped_to_the_selected_profile() {
+    assert_eq!(PlatformProfile::Linux.gpu_presets(), &[]);
+    assert!(PlatformProfile::Windows.supports_gpu(GpuPreset::WindowsIntelIrisXe));
+    assert!(!PlatformProfile::Windows.supports_gpu(GpuPreset::MacosAppleM1));
+    assert!(PlatformProfile::MacOS.supports_gpu(GpuPreset::MacosAppleM2));
+    assert!(!PlatformProfile::MacOS.supports_gpu(GpuPreset::WindowsNvidiaRtx3060));
+}
+
+#[test]
+fn selected_gpu_is_applied_to_the_chromium_launch_environment() {
+    let stealth = StealthConfig::for_platform(PlatformProfile::Windows)
+        .docker_gpu(GpuPreset::WindowsIntelIrisXe);
+    let runtime = stealth.docker_gpu_override().unwrap();
+    assert_eq!(runtime.angle_vendor, "Intel");
+    assert_eq!(runtime.angle_renderer, "Intel(R) Iris(R) Xe Graphics");
+
+    let config = stealth
+        .apply_docker_gpu_environment(BrowserConfig::builder().chrome_executable("/bin/true"))
+        .build()
+        .expect("test executable should produce a valid browser config");
+    let envs = config
+        .process_envs
+        .expect("GPU environment should be present");
+    assert_eq!(envs.get("LIBGL_ALWAYS_SOFTWARE"), Some(&"true".to_string()));
+    assert_eq!(
+        envs.get("MESA_LOADER_DRIVER_OVERRIDE"),
+        Some(&"llvmpipe".to_string())
+    );
+    assert_eq!(envs.get("ANGLE_GL_VENDOR"), Some(&"Intel".to_string()));
+    assert_eq!(
+        envs.get("ANGLE_GL_RENDERER"),
+        Some(&"Intel(R) Iris(R) Xe Graphics".to_string())
+    );
+    assert!(!envs.contains_key("ANGLE_GL_VERSION"));
 }
 
 #[test]
@@ -21,6 +60,10 @@ fn none_disables_every_patch() {
         Patch::Screen,
         Patch::MediaFeatures,
         Patch::Touch,
+        Patch::HardwareConcurrency,
+        Patch::Permissions,
+        Patch::Geolocation,
+        Patch::Gpu,
     ] {
         assert_eq!(config.patch_state(patch), PatchState::Disabled);
     }
@@ -72,9 +115,13 @@ fn patch_plan_order_is_deterministic() {
             Patch::Locale,
             Patch::Timezone,
             Patch::Identity,
+            Patch::HardwareConcurrency,
             Patch::Screen,
             Patch::MediaFeatures,
             Patch::Touch,
+            Patch::Geolocation,
+            Patch::Permissions,
+            Patch::Gpu,
         ]
     );
 }
@@ -92,12 +139,14 @@ fn supports_playwright_style_patch_selection() {
     let config = StealthConfig::none()
         .enable(Patch::Identity)
         .enable(Patch::Timezone)
+        .enable(Patch::HardwareConcurrency)
         .use_native(Patch::Screen)
         .disable(Patch::Touch)
         .consistency_policy(ConsistencyPolicy::Warn);
 
     assert_eq!(config.policy(), ConsistencyPolicy::Warn);
     assert_eq!(config.patch_state(Patch::Identity), PatchState::Override);
+    assert_eq!(config.hardware_concurrency_override(), Some(8));
     assert_eq!(config.patch_state(Patch::Screen), PatchState::Native);
     assert_eq!(config.patch_state(Patch::Touch), PatchState::Disabled);
 }
@@ -126,6 +175,49 @@ fn detects_touch_contradictions_before_launching_chromium() {
     let config = StealthConfig::none().touch(true, 0);
 
     assert_eq!(config.validation_issues().len(), 1);
+}
+
+#[test]
+fn rejects_zero_hardware_concurrency_before_launching_chromium() {
+    let config = StealthConfig::none().hardware_concurrency(0);
+
+    assert!(config.validation_issues().iter().any(|issue| matches!(
+        issue,
+        stealth_oxide::ValidationIssue::InvalidHardwareConcurrency
+    )));
+}
+
+#[test]
+fn configures_native_permission_and_geolocation_controls() {
+    let config = StealthConfig::none()
+        .permission(PermissionOverride::for_origin(
+            "geolocation",
+            PermissionSetting::Granted,
+            "https://example.com",
+        ))
+        .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
+
+    assert_eq!(config.patch_state(Patch::Permissions), PatchState::Override);
+    assert_eq!(config.patch_state(Patch::Geolocation), PatchState::Override);
+    assert_eq!(config.permissions_override().unwrap().len(), 1);
+    assert_eq!(
+        config.geolocation_override().unwrap().latitude,
+        Some(40.7128)
+    );
+    assert!(config.validation_issues().is_empty());
+}
+
+#[test]
+fn rejects_invalid_native_permission_and_geolocation_values() {
+    let config = StealthConfig::none()
+        .permission(PermissionOverride::for_origin(
+            "geolocation",
+            PermissionSetting::Granted,
+            "not-an-origin",
+        ))
+        .geolocation(GeolocationConfig::position(91.0, 0.0, 0.0));
+
+    assert_eq!(config.validation_issues().len(), 2);
 }
 
 #[test]
@@ -164,6 +256,25 @@ fn customizes_a_preset_without_breaking_coupled_locale_fields() -> stealth_oxide
     assert_eq!(profile.locale().locale, "en-CA");
     assert_eq!(profile.navigator().languages[0], "en-CA");
     assert_eq!(profile.locale().timezone, "America/Toronto");
+    assert_eq!(profile.screen().available_width, 2560);
+    assert_eq!(profile.screen().available_height, 1400);
     assert_eq!(profile.screen().device_scale_factor, 1.25);
+    assert_eq!(profile.hardware().hardware_concurrency, 8);
+    Ok(())
+}
+
+#[test]
+fn customizes_hardware_concurrency_as_profile_data() -> stealth_oxide::Result<()> {
+    let profile = BrowserProfileBuilder::new(chrome_linux())
+        .hardware_concurrency(12)
+        .build()?;
+
+    assert_eq!(profile.hardware().hardware_concurrency, 12);
+    assert_eq!(
+        StealthConfig::from_profile(profile)
+            .enable(Patch::HardwareConcurrency)
+            .hardware_concurrency_override(),
+        Some(12)
+    );
     Ok(())
 }

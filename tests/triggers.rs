@@ -11,8 +11,10 @@ mod triggers {
 
     mod device_environment;
     mod font_speech_environment;
+    mod hardware_concurrency;
     mod headless_emulation;
     mod media_emulation;
+    mod permissions_geolocation;
     mod screen_emulation;
     mod timezone_intl;
     mod webgl_emulation;

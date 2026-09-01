@@ -61,6 +61,21 @@ pub enum ValidationIssue {
     /// Touch state and point count disagree.
     #[error("touch configuration is contradictory")]
     TouchContradiction,
+    /// The logical processor count is invalid for Chromium's native override.
+    #[error("hardware concurrency must be greater than zero")]
+    InvalidHardwareConcurrency,
+    /// A permission override has an empty name or invalid origin.
+    #[error("permission override is invalid: {field}")]
+    InvalidPermission {
+        /// Permission field that failed validation.
+        field: &'static str,
+    },
+    /// Geolocation coordinates or optional measurements are invalid.
+    #[error("geolocation override is invalid: {field}")]
+    InvalidGeolocation {
+        /// Geolocation field that failed validation.
+        field: &'static str,
+    },
     /// User agent, navigator platform, and Client Hints platform disagree.
     #[error("user agent, navigator platform, and UA Client Hints platform disagree")]
     PlatformMismatch,
@@ -158,6 +173,13 @@ pub enum Error {
         /// Original patch construction or Chromiumoxide error.
         #[source]
         source: Box<Error>,
+    },
+
+    /// A browser-context CDP patch was passed to the page-only apply method.
+    #[error("{patch:?} requires StealthConfig::apply_browser with a Browser connection")]
+    BrowserRequired {
+        /// Patch that must be applied through the browser connection.
+        patch: Patch,
     },
 }
 

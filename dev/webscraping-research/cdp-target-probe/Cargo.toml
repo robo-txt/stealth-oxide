@@ -1,0 +1,14 @@
+[package]
+name = "stealth-oxide-cdp-target-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+chromiumoxide = "0.9.1"
+futures = "0.3.34"
+serde_json = "1.0.151"
+serde = { version = "1.0.229", features = ["derive"] }
+stealth-oxide = { path = "../../../" }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "time"] }

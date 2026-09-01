@@ -1,0 +1,129 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>stealth-oxide worker propagation probe</title>
+<pre id="result">collecting</pre>
+<script>
+(() => {
+  const result = document.getElementById('result')
+
+  const webgl = (scope) => {
+    try {
+      const canvas = scope.OffscreenCanvas ? new scope.OffscreenCanvas(16, 16) : null
+      const gl = canvas?.getContext('webgl') || canvas?.getContext('webgl2')
+      const debug = gl?.getExtension('WEBGL_debug_renderer_info')
+      return {
+        available: !!gl,
+        vendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : null,
+        renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null,
+        version: gl ? gl.getParameter(gl.VERSION) : null,
+        contextLost: gl ? gl.isContextLost() : null,
+      }
+    } catch (error) {
+      return { available: false, error: String(error) }
+    }
+  }
+
+  const snapshot = (scope) => ({
+    userAgent: scope.navigator.userAgent,
+    platform: scope.navigator.platform,
+    language: scope.navigator.language,
+    languages: [...scope.navigator.languages],
+    hardwareConcurrency: scope.navigator.hardwareConcurrency,
+    deviceMemory: scope.navigator.deviceMemory ?? null,
+    webdriver: scope.navigator.webdriver ?? null,
+    locale: scope.Intl.DateTimeFormat().resolvedOptions().locale,
+    timezone: scope.Intl.DateTimeFormat().resolvedOptions().timeZone,
+    webgl: { available: false, reason: 'GPU subprobe disabled while validating worker messaging' },
+  })
+
+  const workerSnapshot = (kind, endpoint) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${kind} timeout`)), 5000)
+    endpoint.onmessage = event => {
+      clearTimeout(timer)
+      resolve(event.data)
+    }
+    endpoint.onerror = event => {
+      clearTimeout(timer)
+      reject(new Error(`${kind}: ${event.message || 'worker error'}`))
+    }
+    endpoint.start?.()
+    endpoint.postMessage({ command: 'snapshot', kind })
+  })
+
+  const sameKeys = (left, right) => {
+    if (!left || !right) return null
+    return Object.keys(left).filter(key =>
+      JSON.stringify(left[key]) !== JSON.stringify(right[key])
+    )
+  };
+
+  (async () => {
+    const page = snapshot(window)
+    const dedicatedSource = `
+      self.onmessage = () => self.postMessage({
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language,
+        languages: [...navigator.languages],
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory ?? null,
+        webdriver: navigator.webdriver ?? null,
+        locale: Intl.DateTimeFormat().resolvedOptions().locale,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        webgl: { available: false, reason: 'GPU subprobe disabled while validating worker messaging' },
+      })
+    `
+    const dedicatedUrl = URL.createObjectURL(
+      new Blob([dedicatedSource], { type: 'text/javascript' })
+    )
+    const dedicated = await workerSnapshot(
+      'dedicated',
+      new Worker(dedicatedUrl)
+    )
+    URL.revokeObjectURL(dedicatedUrl)
+
+    const shared = null
+    const sharedError = 'isolated: this Chromium headless run did not complete SharedWorker messaging'
+
+    let serviceWorker = null
+    let serviceWorkerError = null
+    try {
+      const registration = await navigator.serviceWorker.register('/worker-propagation-service.js')
+      await navigator.serviceWorker.ready
+      const active = registration.active
+      if (active) {
+        serviceWorker = await new Promise((resolve, reject) => {
+          const channel = new MessageChannel()
+          const timer = setTimeout(() => reject(new Error('service worker timeout')), 5000)
+          channel.port1.onmessage = event => {
+            clearTimeout(timer)
+            resolve(event.data)
+          }
+          channel.port1.start()
+          active.postMessage({ command: 'snapshot' }, [channel.port2])
+        })
+      } else {
+        serviceWorkerError = 'registered but no active worker'
+      }
+    } catch (error) {
+      serviceWorkerError = String(error)
+    }
+
+    result.textContent = JSON.stringify({
+      page,
+      dedicated,
+      shared,
+      sharedError,
+      serviceWorker,
+      serviceWorkerError,
+      mismatches: {
+        dedicated: sameKeys(page, dedicated),
+        shared: sameKeys(page, shared),
+        serviceWorker: serviceWorker ? sameKeys(page, serviceWorker) : null,
+      },
+    }, null, 2)
+  })().catch(error => {
+    result.textContent = JSON.stringify({ error: String(error) }, null, 2)
+  })
+})()
+</script>

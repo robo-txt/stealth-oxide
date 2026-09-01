@@ -21,6 +21,7 @@ and reproducible QA environments.
 ## What you can do
 
 - Start from coherent Linux, macOS, or Windows Chrome profiles.
+- Select a common Windows or macOS GPU identity for CPU-rendered Docker jobs.
 - Apply identity, locale, timezone, screen, media-feature, and touch settings.
 - Override only the surfaces your application needs while preserving native
   Chromium values everywhere else.
@@ -65,6 +66,38 @@ the package helps applications collect and compare:
 
 These are environment snapshots for authorized testing, not classifications or
 guarantees about a third-party service.
+
+### Docker profile captures
+
+The repository also includes full-page CreepJS captures from the Docker GPU
+profile example. Each run uses Xvfb and Mesa/LLVMpipe for CPU rendering; it
+does not create or pass through a physical GPU. The Rust profile selection
+passes the corresponding ANGLE vendor and renderer into Chromium before launch:
+
+<table>
+  <tr>
+    <th>Linux · AMD Radeon HD 3200</th>
+    <th>Windows · Intel Iris Xe</th>
+    <th>macOS · Apple M1</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="docs/images/creepjs-docker-linux.png">
+        <img src="docs/images/creepjs-docker-linux.png" alt="Linux Docker CreepJS profile capture" width="260">
+      </a>
+    </td>
+    <td>
+      <a href="docs/images/creepjs-docker-windows.png">
+        <img src="docs/images/creepjs-docker-windows.png" alt="Windows Docker CreepJS profile capture" width="260">
+      </a>
+    </td>
+    <td>
+      <a href="docs/images/creepjs-docker-macos.png">
+        <img src="docs/images/creepjs-docker-macos.png" alt="macOS Docker CreepJS profile capture" width="260">
+      </a>
+    </td>
+  </tr>
+</table>
 
 ## Installation
 
@@ -128,6 +161,98 @@ async fn main() -> Result<()> {
 Apply the configuration before navigation so the first page scripts observe
 the selected values.
 
+### Selecting a platform and Docker GPU
+
+Select the operating-system profile first, then select a GPU from that
+platform's catalog. Apply the GPU environment before launching Chromium:
+
+```rust,no_run
+use anyhow::Result;
+use chromiumoxide::BrowserConfig;
+use stealth_oxide::{GpuPreset, PlatformProfile, StealthConfig};
+
+fn selected_browser() -> Result<(BrowserConfig, StealthConfig)> {
+    let platform = PlatformProfile::Windows;
+    let gpu = GpuPreset::WindowsIntelIrisXe;
+    assert!(platform.supports_gpu(gpu));
+
+    let stealth = StealthConfig::from_profile(platform.profile()).docker_gpu(gpu);
+    let browser_config = stealth
+        .apply_docker_gpu_environment(BrowserConfig::builder().hide())
+        .build()
+        .map_err(anyhow::Error::msg)?;
+    Ok((browser_config, stealth))
+}
+```
+
+The selected environment is native to the Chromium process: it uses
+Mesa/LLVMpipe for rendering and configures ANGLE's reported vendor and
+renderer. It does not add GPU hardware to the container and it does not make a
+Linux runtime fully equivalent to Windows or macOS. Apply the returned
+`StealthConfig` to the page after launch as shown above.
+
+The Windows catalog includes Intel UHD 620, Intel Iris Xe, NVIDIA GTX 1650,
+NVIDIA RTX 3060, and AMD Radeon RX 580. The macOS catalog includes Intel Iris
+Plus 645, AMD Radeon Pro 5500M, Apple M1, and Apple M2.
+
+The diagnostic scraper exposes the same selection through environment
+variables. For example:
+
+```text
+STEALTH_OXIDE_DIAGNOSTIC_PROFILE=windows \
+STEALTH_OXIDE_GPU_PRESET=windows-intel-iris-xe \
+STEALTH_OXIDE_DIAGNOSTIC_SCREENSHOT=/tmp/windows-iris-xe.png \
+cargo run --example site_diagnostic -- https://example.com/
+```
+
+The GPU preset must belong to the selected platform. Omitting it preserves the
+existing host/default GPU behavior; setting it enables the Mesa launch path in
+the diagnostic job.
+
+### Running the Docker profile example
+
+Build the example image from the repository root:
+
+```bash
+docker build -f examples/Dockerfile.docker_gpu_profiles \
+  -t stealth-oxide/docker-gpu-profiles:local .
+```
+
+Run all three profile captures. The `/tmp` mount keeps the PNGs on the host:
+
+```bash
+docker run --rm --network host --shm-size=2g -v /tmp:/tmp \
+  stealth-oxide/docker-gpu-profiles:local
+```
+
+The default Rust mapping is:
+
+| Platform profile | GPU identity passed before Chromium launch | Output |
+| --- | --- | --- |
+| Linux | AMD Radeon HD 3200 | `/tmp/stealth-oxide-creepjs-docker/creepjs-linux.png` |
+| Windows | Intel Iris Xe | `/tmp/stealth-oxide-creepjs-docker/creepjs-windows.png` |
+| macOS | Apple M1 | `/tmp/stealth-oxide-creepjs-docker/creepjs-macos.png` |
+
+To run only one profile, pass `linux`, `windows`, or `macos`:
+
+```bash
+docker run --rm --network host --shm-size=2g -v /tmp:/tmp \
+  stealth-oxide/docker-gpu-profiles:local windows
+```
+
+To change the output directory, set `CREEPJS_SCREENSHOT_DIR` to a path inside
+the mounted volume:
+
+```bash
+docker run --rm --network host --shm-size=2g -v /tmp:/tmp \
+  -e CREEPJS_SCREENSHOT_DIR=/tmp/my-creepjs-runs \
+  stealth-oxide/docker-gpu-profiles:local
+```
+
+This is an experimental identity diagnostic. The renderer strings are selected
+through ANGLE launch settings, while actual rendering remains CPU-backed
+LLVMpipe and the browser runtime remains Linux.
+
 ## Profiles and patches
 
 Built-in profiles are selected explicitly:
@@ -150,6 +275,21 @@ Each profile supplies typed values for:
 | Screen | Dimensions, available area, scale factor, orientation |
 | Media features | Color scheme, reduced motion, forced colors, gamut, monochrome |
 | Touch | Touch availability and maximum touch points |
+| Hardware | Logical processor count |
+| Permissions | Origin-scoped browser permission settings |
+| Geolocation | Native position or unavailable-state override |
+
+Platform profiles also expose validation-only expectations for native desktop
+capabilities such as Web Share, Contacts Manager, Content Index, and
+`NetworkInformation.prototype.downlinkMax`. These expectations do not inject
+or remove APIs: selecting a Windows or macOS identity on a Linux host cannot
+turn the underlying Chromium runtime into that operating system.
+
+Screen work-area values are kept on Chromium's native CDP surface. The
+diagnostic reports `Emulation.getScreenInfos` separately from legacy
+`window.screen.availWidth`/`availHeight`; the latter may remain host-provided
+because changing it with a JavaScript own-property shim creates a detectable
+prototype lie in CreepJS.
 
 Patches can be enabled, disabled, or kept native independently:
 
@@ -174,6 +314,58 @@ let config = StealthConfig::none()
     .enable(Patch::Locale)
     .enable(Patch::Timezone);
 ```
+
+### Browser permissions and geolocation
+
+Permission overrides use Chromium's browser-level CDP domain. The
+`StealthConfig::new_page` helper applies permissions, configures the page
+before any destination document script runs, navigates, and reapplies
+target-scoped state after navigation when Chromium resets it:
+
+```rust,no_run
+use anyhow::Result;
+use chromiumoxide::{Browser, BrowserConfig};
+use futures::StreamExt;
+use stealth_oxide::{
+    GeolocationConfig, PermissionOverride, PermissionSetting,
+    PlatformProfile, StealthConfig,
+};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let profile = PlatformProfile::Windows.profile();
+    let browser_config = BrowserConfig::builder()
+        .hide()
+        .build()
+        .map_err(anyhow::Error::msg)?;
+    let (mut browser, mut handler) = Browser::launch(browser_config).await?;
+    tokio::spawn(async move {
+        while let Some(event) = handler.next().await {
+            if let Err(error) = event {
+                eprintln!("chromiumoxide handler error: {error:?}");
+            }
+        }
+    });
+
+    let config = StealthConfig::from_profile(profile)
+        .permission(PermissionOverride::for_origin(
+            "geolocation",
+            PermissionSetting::Granted,
+            "https://example.com",
+        ))
+        .geolocation(GeolocationConfig::position(40.7128, -74.006, 25.0));
+    let page = config.new_page(&browser, "https://example.com").await?;
+
+    browser.close().await?;
+    Ok(())
+}
+```
+
+Calling `apply` directly with a permission override still returns
+`Error::BrowserRequired`; use `new_page` or call `apply_browser` explicitly
+when managing the lifecycle yourself. The helper keeps its initialization
+target internal, so callers do not need to create or expose an intermediate
+blank page.
 
 ## Custom profiles and validation
 
@@ -234,6 +426,35 @@ page.goto("https://example.com").await?;
 
 The application must keep driving the event stream. This makes target
 coverage explicit instead of hiding a runtime task inside the library.
+
+For a structured comparison across sites, run the repository diagnostic
+example. It uses the Windows profile, records navigation and context
+mismatches, and reports CreepJS percentage signals without emitting its
+fingerprint identifier or network candidates:
+
+```text
+STEALTH_OXIDE_DIAGNOSTIC_WAIT=6 cargo run --example site_diagnostic -- \
+  https://example.com/ \
+  https://abrahamjuliot.github.io/creepjs/ \
+  https://stackoverflow.com/ \
+  https://www.ticketmaster.com/ \
+  https://www.reddit.com/
+```
+
+Select the profile under test with `STEALTH_OXIDE_DIAGNOSTIC_PROFILE=linux`,
+`windows` (the default), or `macos`. The diagnostic reads the installed
+Chromium executable version before launch and aligns the profile's Chrome
+UA/UA-CH version tokens to that runtime, including launch-time worker identity.
+For meaningful native-host results, select the profile matching the host OS;
+cross-platform profiles intentionally remain observable as identity overrides.
+
+The diagnostic also reports native capability expectations/observations and
+`Emulation.getScreenInfos` work-area data. It does not report a zero overall
+CreepJS score: CreepJS's separate `like headless` percentage includes native
+GPU, taskbar, and other host-runtime signals.
+
+Set `STEALTH_OXIDE_USE_MESA=1` for the optional ANGLE/OpenGL software-GPU
+comparison. The result records the selected GPU mode and the WebGL renderer.
 
 ## Network observation
 

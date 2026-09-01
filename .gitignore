@@ -13,6 +13,19 @@
 !/docs/images/creepjs-full-page.png
 !/docs/images/sannysoft-full-page.png
 !/docs/images/stealth-oxide-logo.png
+!/docs/images/creepjs-docker-linux.png
+!/docs/images/creepjs-docker-windows.png
+!/docs/images/creepjs-docker-macos.png
 
 # Privately supplied Windows fonts. Keep the directory instructions tracked,
 # but never commit licensed font binaries.
+
+# Local browser-test outputs and downloaded diagnostics.
+/test-artifacts/
+/test-results/
+/test-screenshots/
+/test-logs/
+/.chromium/
+
+# Build outputs from disposable research crates under dev/.
+/dev/**/target/

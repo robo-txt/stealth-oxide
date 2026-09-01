@@ -5,13 +5,17 @@
 //! [`TargetCoordinator::apply`] for every event. The coordinator always resumes
 //! the target, including unsupported target types, to avoid freezing browser work.
 
+use chromiumoxide::Browser;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::emulation::{
-    SetLocaleOverrideParams, SetTimezoneOverrideParams, SetUserAgentOverrideParams,
+    SetGeolocationOverrideParams, SetHardwareConcurrencyOverrideParams, SetLocaleOverrideParams,
+    SetTimezoneOverrideParams,
 };
+use chromiumoxide::cdp::browser_protocol::network::SetUserAgentOverrideParams;
 use chromiumoxide::cdp::browser_protocol::target::{
     EventAttachedToTarget, FilterEntry, SessionId, SetAutoAttachParams, TargetFilter,
 };
+use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams as RuntimeEvaluateParams;
 use chromiumoxide::cdp::js_protocol::runtime::RunIfWaitingForDebuggerParams;
 use chromiumoxide::listeners::EventStream;
 use chromiumoxide::types::{Command, Method, MethodId};
@@ -20,6 +24,27 @@ use serde_json::Value;
 
 use crate::config::PatchMode;
 use crate::{Error, Result, StealthConfig};
+
+/// Creates a configured page and navigates it to the destination URL.
+pub(crate) async fn new_page_with_profile(
+    browser: &Browser,
+    config: &StealthConfig,
+    url: &str,
+) -> Result<Page> {
+    config.apply_browser(browser).await?;
+    let page_config = config.clone().use_native(crate::Patch::Permissions);
+    let page = browser
+        .new_page("about:blank")
+        .await
+        .map_err(|source| Error::cdp("configured page creation", source))?;
+    page_config.apply(&page).await?;
+    page.goto(url)
+        .await
+        .map_err(|source| Error::cdp("configured page navigation", source))?;
+    // Chromium can reset target-scoped emulation during a cross-origin load.
+    page_config.apply(&page).await?;
+    Ok(page)
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,12 +88,17 @@ impl TargetApplyReport {
     }
 }
 
-/// Applies target-scoped identity, locale, and timezone commands to new targets.
+/// Applies target-scoped identity, locale, timezone, hardware, and geolocation
+/// commands to new targets.
 #[derive(Debug, Clone)]
 pub struct TargetCoordinator {
     locale: Option<SetLocaleOverrideParams>,
     timezone: Option<SetTimezoneOverrideParams>,
     identity: Option<SetUserAgentOverrideParams>,
+    worker_platform: Option<String>,
+    hardware_concurrency: Option<SetHardwareConcurrencyOverrideParams>,
+    geolocation: Option<SetGeolocationOverrideParams>,
+    gpu_source: Option<String>,
 }
 
 impl TargetCoordinator {
@@ -86,10 +116,30 @@ impl TargetCoordinator {
             PatchMode::Override(value) => Some(target_identity_params(value)?),
             PatchMode::Native | PatchMode::Disabled => None,
         };
+        let worker_platform = match config.identity_mode() {
+            PatchMode::Override(value) => Some(value.platform.clone()),
+            PatchMode::Native | PatchMode::Disabled => None,
+        };
+        let hardware_concurrency = match config.hardware_concurrency_mode() {
+            PatchMode::Override(value) => Some(crate::patches::hardware::params(*value)?),
+            PatchMode::Native | PatchMode::Disabled => None,
+        };
+        let geolocation = match config.geolocation_mode() {
+            PatchMode::Override(value) => Some(crate::patches::geolocation::params(value)),
+            PatchMode::Native | PatchMode::Disabled => None,
+        };
+        let gpu_source = match config.gpu_mode() {
+            PatchMode::Override(value) => Some(crate::patches::gpu::source(value)?),
+            PatchMode::Native | PatchMode::Disabled => None,
+        };
         Ok(Self {
             locale,
             timezone,
             identity,
+            worker_platform,
+            hardware_concurrency,
+            geolocation,
+            gpu_source,
         })
     }
 
@@ -130,11 +180,17 @@ impl TargetCoordinator {
         Ok(())
     }
 
-    /// Number of emulation commands configured for each supported target.
+    /// Number of target-scoped emulation commands configured for a page target.
+    ///
+    /// Geolocation is intentionally sent only to page and OOPIF targets;
+    /// worker targets receive the identity and hardware commands they support.
     pub fn configured_commands(&self) -> usize {
         usize::from(self.locale.is_some())
             + usize::from(self.timezone.is_some())
             + usize::from(self.identity.is_some())
+            + usize::from(self.hardware_concurrency.is_some())
+            + usize::from(self.geolocation.is_some())
+            + usize::from(self.gpu_source.is_some())
     }
 
     /// Applies configured commands to one paused target and always resumes it.
@@ -178,6 +234,47 @@ impl TargetCoordinator {
                     next_id += 1;
                 }
             }
+            if command_error.is_none() && matches!(target_type.as_str(), "worker" | "shared_worker")
+            {
+                if let Some(platform) = &self.worker_platform {
+                    let expression = worker_platform_expression(platform)?;
+                    let command = RuntimeEvaluateParams::new(expression);
+                    match send_nested(page, &event.session_id, next_id, &command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
+                }
+            }
+            if command_error.is_none() && matches!(target_type.as_str(), "worker" | "shared_worker")
+            {
+                if let Some(source) = &self.gpu_source {
+                    let command = RuntimeEvaluateParams::new(source.clone());
+                    match send_nested(page, &event.session_id, next_id, &command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
+                }
+            }
+            if command_error.is_none() {
+                if let Some(command) = &self.hardware_concurrency {
+                    match send_nested(page, &event.session_id, next_id, command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
+                }
+            }
+            if command_error.is_none() && matches!(target_type.as_str(), "page" | "iframe") {
+                if let Some(command) = &self.geolocation {
+                    match send_nested(page, &event.session_id, next_id, command).await {
+                        Ok(()) => applied_commands += 1,
+                        Err(error) => command_error = Some(error),
+                    }
+                    next_id += 1;
+                }
+            }
         }
 
         let resume_result = send_nested(
@@ -199,6 +296,13 @@ impl TargetCoordinator {
             applied_commands,
         })
     }
+}
+
+fn worker_platform_expression(platform: &str) -> Result<String> {
+    let platform = serde_json::to_string(platform).map_err(Error::target_command_json)?;
+    Ok(format!(
+        "(() => {{ Object.defineProperty(navigator, 'platform', {{ configurable: true, enumerable: true, value: {platform} }}); }})()"
+    ))
 }
 
 fn target_identity_params(
@@ -241,12 +345,16 @@ async fn send_nested<T: Method + Serialize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PlatformProfile;
+    use crate::{GeolocationConfig, PlatformProfile};
 
     #[test]
-    fn complete_profile_configures_locale_timezone_and_identity() -> Result<()> {
+    fn complete_profile_configures_locale_timezone_identity_and_hardware() -> Result<()> {
         let config = StealthConfig::for_platform(PlatformProfile::Linux);
         assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 3);
+        let config = config.hardware_concurrency(8);
+        assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 4);
+        let config = config.geolocation(GeolocationConfig::position(40.0, -74.0, 25.0));
+        assert_eq!(TargetCoordinator::new(&config)?.configured_commands(), 5);
         Ok(())
     }
 

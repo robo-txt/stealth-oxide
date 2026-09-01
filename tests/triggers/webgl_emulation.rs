@@ -1,12 +1,15 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::page::ScreenshotParams;
 use serde_json::Value;
 use tokio::time::timeout;
 
 use super::common;
 use common::TestBrowser as StealthBrowser;
 use stealth_oxide::profiles::chrome_windows::chrome_windows;
+use stealth_oxide::{GpuProfile, StealthConfig};
 
 #[tokio::test]
 #[ignore = "requires a local Chromium process with working CDP sockets"]
@@ -166,5 +169,83 @@ async fn webgl_surfaces_are_consistent_across_contexts_and_realms() -> Result<()
         }
     }
 
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires network access and a local Chromium process with working CDP sockets"]
+async fn gpu_surface_patch_is_visible_on_creepjs() -> Result<()> {
+    let profile = chrome_windows();
+    let browser = timeout(
+        Duration::from_secs(20),
+        StealthBrowser::launch(profile.clone()),
+    )
+    .await
+    .context("timed out while launching Chromium")??;
+    let gpu_profile = if matches!(
+        std::env::var("STEALTH_OXIDE_USE_MESA").as_deref(),
+        Ok("1") | Ok("true")
+    ) {
+        GpuProfile::mesa_amd_renoir()
+    } else {
+        GpuProfile::new("Test GPU Vendor", "ANGLE (Test GPU)")
+    };
+    let expected_vendor = gpu_profile.unmasked_vendor.clone();
+    let expected_renderer = gpu_profile.unmasked_renderer.clone();
+    let stealth = StealthConfig::from_profile(profile).gpu_profile(gpu_profile);
+    let (page, target_task) = timeout(
+        Duration::from_secs(20),
+        browser.new_page_with_stealth_and_targets(
+            "https://abrahamjuliot.github.io/creepjs/",
+            &stealth,
+        ),
+    )
+    .await
+    .context("timed out while loading CreepJS")??;
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let observed: Value = timeout(
+        Duration::from_secs(20),
+        page.inner().evaluate(
+            r#"
+            (() => {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl');
+                const debug = gl?.getExtension('WEBGL_debug_renderer_info');
+                return {
+                    title: document.title,
+                    url: location.href,
+                    vendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : null,
+                    renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null,
+                };
+            })()
+            "#,
+        ),
+    )
+    .await
+    .context("timed out while reading CreepJS GPU surfaces")??
+    .into_value()?;
+
+    println!("CreepJS GPU-surface probe: {observed:#}");
+    assert_eq!(observed["vendor"], expected_vendor);
+    assert_eq!(observed["renderer"], expected_renderer);
+    assert_eq!(observed["title"], "CreepJS");
+
+    page.inner()
+        .save_screenshot(
+            ScreenshotParams::builder()
+                .format(CaptureScreenshotFormat::Png)
+                .full_page(true)
+                .build(),
+            "/tmp/stealth-oxide-creepjs-gpu-surface.png",
+        )
+        .await
+        .context("failed to save the CreepJS GPU-surface screenshot")?;
+
+    target_task.abort();
+    let _ = target_task.await;
+    timeout(Duration::from_secs(20), browser.close())
+        .await
+        .context("timed out while closing Chromium")??;
     Ok(())
 }
